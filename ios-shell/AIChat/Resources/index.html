@@ -1097,32 +1097,45 @@ function buildMessages(conv, c){
 function makeSSEParser(onDelta, onDone){
   var buf = '';
   var done = false;
+
+  function handleLine(raw){
+    if (done) return;
+    var line = trim(raw);
+    if (!line) return;
+    if (line.indexOf('data:') !== 0) return;
+    var payload = trim(line.substring(5));
+    if (!payload) return;
+    if (payload === '[DONE]'){ done = true; onDone(); return; }
+    var j = null;
+    try{ j = JSON.parse(payload); }catch(e){ return; }
+    if (j && j.error){
+      onDelta(null, (j.error.message || '接口返回错误'));
+      done = true; onDone(); return;
+    }
+    var ch = j.choices && j.choices[0];
+    var d = ch && (ch.delta || ch.message);
+    if (d && typeof d.content === 'string' && d.content){
+      onDelta(d.content, null);
+    }
+  }
+
   return {
     feed: function(text){
       if (done) return;
       buf += text;
       var lines = buf.split('\n');
-      buf = lines.pop();               // 最后一段可能不完整，留在缓冲
-      for (var i = 0; i < lines.length; i++){
-        var line = trim(lines[i]);
-        if (!line) continue;
-        if (line.indexOf('data:') !== 0) continue;
-        var payload = trim(line.substring(5));
-        if (payload === '[DONE]'){ done = true; onDone(); return; }
-        var j = null;
-        try{ j = JSON.parse(payload); }catch(e){ continue; }
-        if (j && j.error){
-          onDelta(null, (j.error.message || '接口返回错误'));
-          done = true; onDone(); return;
-        }
-        try{
-          var ch = j.choices && j.choices[0];
-          var d = ch && (ch.delta || ch.message);
-          if (d && typeof d.content === 'string' && d.content){
-            onDelta(d.content, null);
-          }
-        }catch(e2){}
-      }
+      buf = lines.pop();     // 末段可能被切断，留到下一批
+      for (var i = 0; i < lines.length; i++) handleLine(lines[i]);
+    },
+    /* 流结束时必须调用。
+       缓冲里最后一段没有换行结尾，如果只靠 feed() 它永远不会被处理，
+       表现为回复的最后一条 data: 被静默丢弃（末尾少一截）。 */
+    finish: function(){
+      if (done) return;
+      var rest = buf;
+      buf = '';
+      if (trim(rest)) handleLine(rest);
+      if (!done){ done = true; onDone(); }
     }
   };
 }
@@ -1185,8 +1198,7 @@ function callAPI(conv, c, handlers){
           if (gotAny) { finished = true; handlers.onDone(); }
           else fallbackNonStream();
         } else {
-          finished = true;
-          handlers.onDone();
+          parser.finish();    // 先冲刷缓冲里的最后一条 data:，再收尾
         }
       },
       onError: function(e){
@@ -1219,7 +1231,7 @@ function callAPI(conv, c, handlers){
     function pump(){
       return reader.read().then(function(r){
         if (r.done){
-          if (!finished){ finished = true; handlers.onDone(); }
+          parser.finish();    // 同上：冲刷最后一段无换行结尾的 data:
           return;
         }
         var txt = dec.decode(r.value, { stream: true });
