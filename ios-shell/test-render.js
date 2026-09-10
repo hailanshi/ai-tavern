@@ -56,6 +56,8 @@ var sandbox = {
   }
 };
 sandbox.window = sandbox;
+// 脚本里用的是 window.atob（浏览器里裸的 atob 挂在 window 上），所以桩也要挂在 window 上
+sandbox.atob = global.atob;
 sandbox.localStorage = {
   getItem: function (k) { return store[k] === undefined ? null : store[k]; },
   setItem: function (k, v) { store[k] = String(v); },
@@ -65,17 +67,24 @@ sandbox.localStorage = {
 /* 把要测的函数导出到返回值 */
 var exportTail = '\nreturn { splitImgMarkers: splitImgMarkers, renderBubbleBody: renderBubbleBody,'
   + ' esc: esc, shorten: shorten, collectMarkers: collectMarkers, splitBubbles: splitBubbles,'
-  + ' shouldAutoGreet: shouldAutoGreet,'
-  + ' evictImages: evictImages, imageBytes: imageBytes, _db: function(){ return DB; },'
+  + ' shouldAutoGreet: shouldAutoGreet, dataUrlToBlob: dataUrlToBlob, estimateSec: estimateSec,'
+  + ' mediaSkipped: mediaSkipped, ttsReady: ttsReady, voiceForChar: voiceForChar,'
+  + ' evictMedia: evictMedia, mediaBytes: mediaBytes, _db: function(){ return DB; },'
   + ' _setDB: function(d){ DB = d; }, _defaults: defaultSettings };';
 
+// 语音相关：脚本里用到 atob / Blob / Uint8Array，node 18+ 全局就有，直接透传
 var api;
 try {
   api = new Function('window', 'document', 'localStorage', 'console', 'setTimeout',
                      'clearTimeout', 'TextDecoder', 'Image', 'AbortController',
+                     'atob', 'Blob', 'Uint8Array', 'Audio', 'URL',
                      src + exportTail)(
     sandbox.window, sandbox.document, sandbox.localStorage, console, setTimeout,
-    clearTimeout, sandbox.TextDecoder, sandbox.Image, sandbox.AbortController);
+    clearTimeout, sandbox.TextDecoder, sandbox.Image, sandbox.AbortController,
+    global.atob, global.Blob, global.Uint8Array,
+    function AudioStub(){ this.play = function(){ return { then: function(){} }; }; },
+    { createObjectURL: function(){ return 'blob:stub'; },
+      revokeObjectURL: function(){} });
 } catch (e) {
   console.error('加载 app.html 脚本失败: ' + e.message);
   process.exit(2);
@@ -170,29 +179,29 @@ has('未闭合标记当普通文字显示', hUnclosed, '忘了闭合');
 
 /* --- 3. 配图四种状态 --- */
 console.log('\n[3] renderBubbleBody 状态渲染');
-var msgWait = { content: '给你看 [[IMG: 晚霞]]', images: [{ prompt: '晚霞', data: null, error: null }] };
+var msgWait = { content: '给你看 [[IMG: 晚霞]]', media: [{ prompt: '晚霞', data: null, error: null }] };
 has('待生成 -> 显示生成中', api.renderBubbleBody(msgWait, 0), '正在生成图片');
 
 var msgOk = { content: '给你看 [[IMG: 晚霞]]',
-              images: [{ prompt: '晚霞', data: 'data:image/jpeg;base64,AAAA', error: null }] };
+              media: [{ prompt: '晚霞', data: 'data:image/jpeg;base64,AAAA', error: null }] };
 var hOk = api.renderBubbleBody(msgOk, 0);
 has('成功 -> 输出 img 标签', hOk, '<img class="bub-img"');
 has('成功 -> src 用图片数据', hOk, 'data:image/jpeg;base64,AAAA');
 hasNot('成功 -> 不再显示生成中', hOk, '正在生成图片');
 
 var msgErr = { content: '给你看 [[IMG: 晚霞]]',
-               images: [{ prompt: '晚霞', data: null, error: 'HTTP 401 无效的 Key' }] };
+               media: [{ prompt: '晚霞', data: null, error: 'HTTP 401 无效的 Key' }] };
 var hErr = api.renderBubbleBody(msgErr, 0);
 has('失败 -> 显示失败原因', hErr, '配图失败');
 has('失败 -> 可点击重试', hErr, 'window.retryImage(0,0)');
 
 var msgEvt = { content: '给你看 [[IMG: 晚霞]]',
-               images: [{ prompt: '晚霞', data: null, error: null, evicted: true }] };
+               media: [{ prompt: '晚霞', data: null, error: null, evicted: true }] };
 has('被清理 -> 显示已清理', api.renderBubbleBody(msgEvt, 0), '配图已清理');
 
 console.log('\n[4] 文字完整性（配图永远不能吃掉文字）');
 var msgMix = { content: '开头 [[IMG: 图]] 结尾',
-               images: [{ prompt: '图', data: 'data:image/jpeg;base64,BB', error: null }] };
+               media: [{ prompt: '图', data: 'data:image/jpeg;base64,BB', error: null }] };
 var hMix = api.renderBubbleBody(msgMix, 0);
 has('图片前的文字还在', hMix, '开头');
 has('图片后的文字还在', hMix, '结尾');
@@ -203,7 +212,7 @@ has('转义后仍保留可见内容', hEsc, '&lt;script&gt;');
 
 console.log('\n[5] 消息序号正确传进重试回调');
 var hIdx = api.renderBubbleBody({ content: '[[IMG: x]]',
-                                  images: [{ prompt: 'x', data: null, error: 'boom' }] }, 7);
+                                  media: [{ prompt: 'x', data: null, error: 'boom' }] }, 7);
 has('用了传入的消息序号', hIdx, 'window.retryImage(7,0)');
 
 /* --- 6. 存储预算回收 --- */
@@ -212,31 +221,31 @@ function mkDB(n, sizeEach) {
   var msgs = [];
   for (var i = 0; i < n; i++) {
     msgs.push({ role: 'assistant', content: 'msg' + i,
-                images: [{ prompt: 'p' + i, data: new Array(sizeEach + 1).join('x'), ts: i }] });
+                media: [{ prompt: 'p' + i, data: new Array(sizeEach + 1).join('x'), ts: i }] });
   }
   return { settings: api._defaults(), chars: [], convs: [{ id: 'c', charId: 'x', msgs: msgs }] };
 }
 
 api._setDB(mkDB(3, 1000));
-eq('预算内不回收', api.evictImages(false), 0);
-eq('图片字节统计正确', api.imageBytes(), 3000);
+eq('预算内不回收', api.evictMedia(false), 0);
+eq('图片字节统计正确', api.mediaBytes(), 3000);
 
 // 6 张 × 600KB = 3.6MB，超过 2.5MB 预算
 api._setDB(mkDB(6, 600 * 1024));
-var before = api.imageBytes();
-var dropped = api.evictImages(false);
-var after = api.imageBytes();
+var before = api.mediaBytes();
+var dropped = api.evictMedia(false);
+var after = api.mediaBytes();
 eq('超预算触发回收', dropped > 0, true);
 eq('回收后落到预算内', after <= 2.5 * 1024 * 1024, true);
 eq('回收后确实变小了', after < before, true);
-eq('被清的图标记了 evicted', api._db().convs[0].msgs[0].images[0].evicted, true);
-eq('最旧的先被清（第0条）', api._db().convs[0].msgs[0].images[0].data, null);
-eq('最新的保留（第5条）', typeof api._db().convs[0].msgs[5].images[0].data, 'string');
+eq('被清的图标记了 evicted', api._db().convs[0].msgs[0].media[0].evicted, true);
+eq('最旧的先被清（第0条）', api._db().convs[0].msgs[0].media[0].data, null);
+eq('最新的保留（第5条）', typeof api._db().convs[0].msgs[5].media[0].data, 'string');
 eq('文字一条没丢', api._db().convs[0].msgs[0].content, 'msg0');
 
 api._setDB(mkDB(6, 600 * 1024));
-eq('forceAll 全清', api.evictImages(true), 6);
-eq('全清后字节为 0', api.imageBytes(), 0);
+eq('forceAll 全清', api.evictMedia(true), 6);
+eq('全清后字节为 0', api.mediaBytes(), 0);
 
 /* --- 7. 连发多条 --- */
 console.log('\n[7] splitBubbles 连发多条');
@@ -264,7 +273,7 @@ has('第三句在', hMulti, '第三句');
 hasNot('分隔符不外泄', hMulti, '|||');
 
 var mBoth = { content: '看这个 [[IMG: 晚霞]]|||好看吧',
-              images: [{ kind: 'img', prompt: '晚霞', data: 'data:image/jpeg;base64,ZZ' }] };
+              media: [{ kind: 'img', prompt: '晚霞', data: 'data:image/jpeg;base64,ZZ' }] };
 var hBoth = api.renderBubbleBody(mBoth, 0);
 eq('图文分条 -> 2 个气泡', (hBoth.match(/class="bub"/g) || []).length, 2);
 has('图片挂在第一段', hBoth, 'data:image/jpeg;base64,ZZ');
@@ -280,7 +289,7 @@ eq('图片描述解析正确', mk[0].prompt, '风景');
 eq('表情包描述解析正确', mk[1].prompt, '大笑');
 
 var hSt = api.renderBubbleBody({ content: '[[STICKER: 大笑]]',
-  images: [{ kind: 'sticker', prompt: '大笑', data: 'data:image/jpeg;base64,ST' }] }, 0);
+  media: [{ kind: 'sticker', prompt: '大笑', data: 'data:image/jpeg;base64,ST' }] }, 0);
 has('表情包用小图样式', hSt, 'class="bub-sticker"');
 
 var hStPart = api.renderBubbleBody({ content: '等我 [[STIC', streaming: true }, 0);
@@ -289,7 +298,7 @@ has('显示表情包占位', hStPart, '正在做表情包');
 
 // 下标对齐：关了表情包也要占位，否则后面的图会串位
 var mSkip = { content: '[[STICKER: 甲]]|||[[IMG: 乙]]',
-              images: [{ kind: 'sticker', prompt: '甲', skipped: true },
+              media: [{ kind: 'sticker', prompt: '甲', skipped: true },
                        { kind: 'img', prompt: '乙', data: 'data:image/jpeg;base64,EE' }] };
 var hSkip = api.renderBubbleBody(mSkip, 0);
 has('被跳过的表情包后面的图片仍正确', hSkip, 'data:image/jpeg;base64,EE');
@@ -333,6 +342,114 @@ eq('没有对话 -> false', api.shouldAutoGreet(NOW, null, st(), ui()), false);
 eq('空对话 -> false', api.shouldAutoGreet(NOW, cv({ msgs: [] }), st(), ui()), false);
 eq('刚建的空对话不触发（防开局自说自话）',
   api.shouldAutoGreet(NOW, cv({ msgs: [], updatedAt: NOW - 99 * 60000 }), st(), ui()), false);
+
+/* --- 11. 语音 --- */
+console.log('\n[11] 语音消息');
+
+var vmark = api.collectMarkers('说点话 [[VOICE: 今天天气不错]] 结束');
+eq('识别 VOICE 标记', vmark.length, 1);
+eq('kind 是 voice', vmark[0].kind, 'voice');
+eq('内容解析正确', vmark[0].prompt, '今天天气不错');
+
+var mixed = api.collectMarkers('[[IMG: 图]] [[STICKER: 表情]] [[VOICE: 话]]');
+eq('三种标记都能识别', mixed.length, 3);
+eq('顺序 1 = img', mixed[0].kind, 'img');
+eq('顺序 2 = sticker', mixed[1].kind, 'sticker');
+eq('顺序 3 = voice', mixed[2].kind, 'voice');
+
+// 逐字流式：[[V / [[VO 这些中间态不能漏出原始语法
+var vseq = ['[', '[[', '[[V', '[[VO', '[[VOI', '[[VOIC', '[[VOICE', '[[VOICE:'];
+var vleak = '';
+for (var vi = 0; vi < vseq.length; vi++) {
+  var vh = api.renderBubbleBody({ content: '我说 ' + vseq[vi], streaming: true }, 0);
+  if (vh.indexOf('[[V') >= 0 || vh.indexOf('[[VO') >= 0) vleak = vseq[vi];
+}
+eq('逐字流式不泄露 [[V 前缀', vleak, '');
+
+var vMsg = { content: '[[VOICE: 今天天气不错]]',
+             media: [{ kind: 'voice', prompt: '今天天气不错',
+                       data: 'data:audio/mp3;base64,AAA', sec: 4 }] };
+var vHtml = api.renderBubbleBody(vMsg, 0);
+has('渲染出播放器', vHtml, 'class="bub-voice');
+has('显示时长', vHtml, '4″');
+has('点击回调带正确下标', vHtml, 'window.toggleVoice(0,0)');
+has('显示字幕', vHtml, 'class="vv-text"');
+has('字幕是原文', vHtml, '今天天气不错');
+
+var vErr = { content: '[[VOICE: 这句话不能丢]]',
+             media: [{ kind: 'voice', prompt: '这句话不能丢', data: null, error: 'invalid token' }] };
+var vErrHtml = api.renderBubbleBody(vErr, 0);
+has('失败时可点击重试', vErrHtml, 'window.retryImage(0,0)');
+has('失败提示写的是语音', vErrHtml, '语音生成失败');
+has('失败时文字仍然可见', vErrHtml, '这句话不能丢');
+
+var vSkip = { content: '[[VOICE: 没开语音]]',
+              media: [{ kind: 'voice', prompt: '没开语音', data: null, skipped: true }] };
+var vSkipHtml = api.renderBubbleBody(vSkip, 0);
+hasNot('未开启时不显示转圈', vSkipHtml, '正在合成语音');
+has('未开启时提示未生成', vSkipHtml, '语音未生成');
+has('未开启时文字仍可见', vSkipHtml, '没开语音');
+
+has('被清理的语音有提示',
+  api.renderBubbleBody({ content: '[[VOICE: 清理了]]',
+    media: [{ kind: 'voice', prompt: '清理了', data: null, evicted: true }] }, 0), '语音已清理');
+
+// 上一轮的遗留 bug：skipped 的表情包会永远转圈
+var stSkip = { content: '[[STICKER: 笑]]',
+               media: [{ kind: 'sticker', prompt: '笑', data: null, skipped: true }] };
+hasNot('被跳过的表情包不再永远转圈',
+  api.renderBubbleBody(stSkip, 0), '正在做表情包');
+
+// base64 -> Blob
+var blob = api.dataUrlToBlob('data:audio/mp3;base64,SGVsbG8=');
+eq('dataUrlToBlob 返回 Blob', blob ? typeof blob.size : 'none', 'number');
+eq('解码字节数正确', blob ? blob.size : -1, 5);
+eq('MIME 解析正确', blob ? blob.type : '', 'audio/mp3');
+eq('非法输入返回 null', api.dataUrlToBlob('nonsense'), null);
+
+eq('短句时长至少 1 秒', api.estimateSec('你好'), 1);
+eq('8 字约 2 秒', api.estimateSec('今天天气真不错呀'), 2);
+eq('空内容兜底 1 秒', api.estimateSec(''), 1);
+
+/* --- 12. 语音和图片共用预算 --- */
+console.log('\n[12] 媒体预算（语音 + 图片）');
+function pad(n) { return new Array(n + 1).join('x'); }
+api._setDB({
+  settings: api._defaults(), chars: [], v: 1,
+  convs: [{ id: 'c', charId: 'x', msgs: [
+    { role: 'assistant', content: 'a',
+      media: [{ kind: 'voice', prompt: 'v', data: pad(1000), ts: 1 }] },
+    { role: 'assistant', content: 'b',
+      media: [{ kind: 'img', prompt: 'i', data: pad(2000), ts: 2 }] }
+  ] }]
+});
+eq('语音和图片一起计入预算', api.mediaBytes(), 3000);
+var vDropped = api.evictMedia(true);
+eq('回收把语音也清掉', vDropped, 2);
+eq('清完后预算归零', api.mediaBytes(), 0);
+eq('文字没被清', api._db().convs[0].msgs[0].content, 'a');
+
+/* --- 13. 功能开关判定 --- */
+console.log('\n[13] 语音配置门槛');
+api._setDB({ settings: api._defaults(), chars: [], v: 1, convs: [] });
+eq('默认没开语音', api.ttsReady(), false);
+eq('没开时语音标记被 skip', api.mediaSkipped('voice'), true);
+eq('没配生图时图片标记也被 skip', api.mediaSkipped('img'), true);
+
+api._db().settings.ttsEnabled = true;
+api._db().settings.ttsAppId = 'app123';
+eq('只填 AppID 还不算就绪', api.ttsReady(), false);
+api._db().settings.ttsToken = 'tok';
+eq('填全了才算就绪', api.ttsReady(), true);
+eq('就绪后不再 skip', api.mediaSkipped('voice'), false);
+
+api._db().chars = [{ id: 'c1', name: '甲', voice: 'BV999_streaming' }];
+api._db().settings.ttsVoice = 'BV001_streaming';
+eq('角色自带音色优先', api.voiceForChar('c1'), 'BV999_streaming');
+eq('角色没设则用全局',
+  (function () { api._db().chars[0].voice = ''; return api.voiceForChar('c1'); })(),
+  'BV001_streaming');
+eq('查不到角色时用全局', api.voiceForChar('nope'), 'BV001_streaming');
 
 console.log('\n' + '='.repeat(52));
 console.log('  结果: ' + pass + ' 项通过, ' + fail + ' 项失败');

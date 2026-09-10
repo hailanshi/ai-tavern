@@ -15,6 +15,7 @@
 #import "ViewController.h"
 
 #import <WebKit/WebKit.h>
+#import <AVFoundation/AVFoundation.h>
 
 #pragma mark - 弱引用代理（避免 WKUserContentController 强引用 self 造成循环）
 
@@ -93,6 +94,8 @@
         removeScriptMessageHandlerForName:@"nativeFetch"];
     [self.webView.configuration.userContentController
         removeScriptMessageHandlerForName:@"nativeAbort"];
+    [self.webView.configuration.userContentController
+        removeScriptMessageHandlerForName:@"audioSession"];
 }
 
 #pragma mark - 搭建
@@ -123,6 +126,7 @@
     AIWeakScriptHandler *proxy = [AIWeakScriptHandler proxyWithTarget:self];
     [cfg.userContentController addScriptMessageHandler:proxy name:@"nativeFetch"];
     [cfg.userContentController addScriptMessageHandler:proxy name:@"nativeAbort"];
+    [cfg.userContentController addScriptMessageHandler:proxy name:@"audioSession"];
 
     // 关键：不要用私有 KVC 给 WKPreferences 设 allowFileAccessFromFileURLs，
     // 不同 iOS 版本行为不一致，会直接抛异常闪退。用原生通道替代。
@@ -273,6 +277,11 @@
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
 
+    if ([message.name isEqualToString:@"audioSession"]) {
+        [self handleAudioSession:message.body];
+        return;
+    }
+
     if ([message.name isEqualToString:@"nativeAbort"]) {
         id body = message.body;
         NSString *reqId = [body isKindOfClass:[NSDictionary class]]
@@ -338,6 +347,39 @@
     task.taskDescription = reqId;        // 用它把回调关联回 reqId
     self.tasks[reqId] = task;
     [task resume];
+}
+
+/*
+ 切换 AVAudioSession 类别。
+ WKWebView 的媒体播放默认走 Ambient，会被手机侧面的静音开关静音 —— 语音消息显然要能听见。
+ 所以播放前切到 Playback，播完切回来（NotifyOthersOnDeactivation 让别的 App 的音乐恢复）。
+ 惰性切换，不做成启动就占用：这个 App 主要以文字为主，不该全程霸占音频通道。
+*/
+- (void)handleAudioSession:(id)body {
+    BOOL on = NO;
+    if ([body isKindOfClass:[NSDictionary class]]) {
+        on = [body[@"on"] boolValue];
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        AVAudioSession *session = [AVAudioSession sharedInstance];
+        NSError *err = nil;
+        BOOL ok = YES;
+
+        if (on) {
+            ok = [session setCategory:AVAudioSessionCategoryPlayback error:&err];
+            if (ok) ok = [session setActive:YES error:&err];
+        } else {
+            ok = [session setActive:NO
+                        withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation
+                              error:&err];
+            [session setCategory:AVAudioSessionCategoryAmbient error:NULL];
+        }
+
+        if (!ok) {
+            NSLog(@"[AIChat] 音频通道切换失败(on=%d): %@", (int)on, err);
+        }
+    });
 }
 
 - (void)abortRequest:(NSString *)reqId {

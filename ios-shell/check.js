@@ -149,10 +149,11 @@ need(/generateImage/, 'generateImage 生图调用');
 need(/images\/generations/, '调用 /images/generations');
 need(/compressToDataURL/, 'canvas 压缩图片');
 need(/nativeFetchBinary/, '原生二进制下载通道');
-need(/evictImages/, '配图配额回收');
-need(/IMG_BUDGET/, '图片存储预算');
+need(/evictMedia/, '媒体配额回收');
+need(/MEDIA_BUDGET/, '媒体存储预算（图片+语音共用）');
 need(/retryImage/, '配图失败重试');
-need(/你只能发送纯文字消息/, '图片关闭时的「不许承诺发图」提示');
+need(/你不能发送图片或照片/, '不能发图时明确禁止空口承诺');
+need(/你不能发送语音/, '不能发语音时明确禁止');
 need(/你可以给用户发图片/, '图片开启时的发图指令');
 
 // --- 连发多条 ---
@@ -175,9 +176,49 @@ need(/STICKER_TAG/, 'STICKER 标记');
 need(/STICKER_STYLE/, '表情包画风前缀');
 need(/collectMarkers/, '标记按序收集');
 
+// --- 语音（火山引擎）---
+need(/VOICE_TAG/, 'VOICE 标记');
+need(/openspeech\.bytedance\.com/, '火山 TTS 端点');
+need(/generateVoice/, 'generateVoice 合成函数');
+need(/ttsReady/, 'ttsReady 配置检查');
+need(/voiceForChar/, '按角色取音色');
+need(/dataUrlToBlob/, 'base64 -> Blob');
+need(/toggleVoice/, '语音播放开关');
+need(/audioSession/, '音频通道切换');
+need(/volcano_tts/, '默认 cluster');
+need(/ttsEnabled:\s*false/, '语音默认关闭');
+need(/TTS_MAX_CHARS/, '文本长度上限保护');
+
+// 火山鉴权头是 "Bearer;token"（分号），写成空格会直接 401
+if (/'Authorization':\s*'Bearer;'/.test(js)) ok('火山鉴权头用分号分隔（Bearer;token）');
+else bad('火山鉴权头格式不对 —— 必须是 Bearer;token，分号不是空格');
+
+// HTTP 200 不代表成功，必须看业务码
+if (/code !== 3000/.test(js)) ok('显式判断火山业务码 3000');
+else bad('没有判断火山业务码 —— HTTP 200 也会返回失败');
+
+// 火山默认返回 pcm，浏览器播不了
+if (/encoding:\s*'mp3'/.test(js)) ok('显式指定 mp3 编码（默认 pcm 播不了）');
+else bad('没有指定 encoding=mp3，音频将无法播放');
+
 // 重命名后不能残留旧引用
-if (/\bcountImgMarkers\b/.test(stripped)) bad('还残留 countImgMarkers 引用（已改名 collectMarkers）');
-else ok('无残留的 countImgMarkers 引用');
+[
+  [/\bcountImgMarkers\b/, 'countImgMarkers'],
+  [/\bevictImages\b/, 'evictImages'],
+  [/\bimageBytes\b/, 'imageBytes'],
+  [/\bIMG_BUDGET\b/, 'IMG_BUDGET'],
+  [/\battachImages\b/, 'attachImages']
+].forEach(function (p) {
+  if (p[0].test(stripped)) bad('还残留旧名 ' + p[1] + '（已改名为 media 系列）');
+  else ok('无残留的 ' + p[1]);
+});
+
+// msg.images -> msg.media 必须带迁移，否则老用户已存的配图会全变孤儿
+if (/mm\.images && !mm\.media/.test(js)) ok('老数据 images -> media 迁移已就位');
+else bad('缺少 images -> media 迁移，老用户的配图会丢失');
+
+if (/\bm\.images\b|\bmsg\.images\b/.test(stripped)) bad('还有地方在读 msg.images（应改成 msg.media）');
+else ok('消息媒体统一走 msg.media');
 
 // 主动问候必须默认关闭，否则用户装上去就会被偷偷扣费
 if (/autoGreet:\s*false/.test(js)) ok('主动问候默认关闭');
@@ -243,9 +284,19 @@ var vc = read(path.join(shellDir, 'ViewController.m'));
   [/evaluateJavaScript/, '回传 JS'],
   [/runOpenPanelWithParameters/, '支持 input[type=file]'],
   [/binaryReqs/, '二进制请求标记集合'],
-  [/base64EncodedStringWithOptions/, '图片字节 base64 回传']
+  [/base64EncodedStringWithOptions/, '图片字节 base64 回传'],
+  [/AVAudioSession/, 'AVAudioSession 音频通道切换'],
+  [/AVAudioSessionCategoryPlayback/, 'Playback 类别（绕开静音开关）']
 ].forEach(function (p) {
   if (p[0].test(vc)) ok(p[1]); else bad('壳缺少：' + p[1]);
+});
+
+// 注册了 handler 就必须在 dealloc 里移除，否则消息代理会留下悬挂引用
+['nativeFetch', 'nativeAbort', 'audioSession'].forEach(function (name) {
+  var reg = new RegExp('addScriptMessageHandler:proxy name:@"' + name + '"').test(vc);
+  var unreg = new RegExp('removeScriptMessageHandlerForName:@"' + name + '"').test(vc);
+  if (reg && unreg) ok(name + ' 注册/注销配对');
+  else if (reg) bad(name + ' 注册了但没在 dealloc 里移除');
 });
 
 // 二进制数据绝不能走 UTF-8 逐字节解码，否则图片会烂掉
@@ -319,6 +370,7 @@ var projSrc = read(path.join(shellDir, 'project.yml'));
   [/TARGETED_DEVICE_FAMILY:\s*"1"/, 'TARGETED_DEVICE_FAMILY=1（仅 iPhone）'],
   [/sdk:\s*WebKit\.framework/, '链接 WebKit'],
   [/sdk:\s*UIKit\.framework/, '链接 UIKit'],
+  [/sdk:\s*AVFoundation\.framework/, '链接 AVFoundation（语音播放需要）'],
   [/^schemes:/m, '定义了 schemes']
 ].forEach(function (p) {
   if (p[0].test(projSrc)) ok(p[1]); else bad('project.yml 缺少：' + p[1]);

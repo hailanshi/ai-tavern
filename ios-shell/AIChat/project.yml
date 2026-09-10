@@ -75,6 +75,8 @@ targets:
       - sdk: WebKit.framework
       - sdk: Foundation.framework
       - sdk: CoreGraphics.framework
+      # 语音播放要切 AVAudioSession 类别，否则静音开关打开时听不到
+      - sdk: AVFoundation.framework
 
 schemes:
   AIChat:

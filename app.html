@@ -95,6 +95,24 @@ input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
 /* 表情包：比配图小一圈 */
 .bub-sticker{display:block;max-width:130px;border-radius:10px;margin-top:7px;
   background:#1a1e26;}
+
+/* 语音气泡 */
+.bub-voice{display:flex;align-items:center;cursor:pointer;padding:2px 0;}
+.bub-voice:active{opacity:.7;}
+.bub-voice .vv-ico{flex:0 0 auto;font-size:14px;line-height:1;margin-right:9px;color:#e8eaed;}
+.bub-voice .vv-wave{flex:1 1 auto;font-size:13px;letter-spacing:-1px;color:#7c8492;
+  overflow:hidden;white-space:nowrap;}
+.bub-voice .vv-sec{flex:0 0 auto;font-size:12px;color:#8b93a1;margin-left:9px;}
+.bub-voice.on .vv-ico,.bub-voice.on .vv-wave{color:#07c160;}
+.row.me .bub-voice .vv-ico{color:#fff;}
+.row.me .bub-voice .vv-wave{color:rgba(255,255,255,.6);}
+.row.me .bub-voice .vv-sec{color:rgba(255,255,255,.8);}
+.row.me .bub-voice.on .vv-wave,.row.me .bub-voice.on .vv-ico{color:#fff;}
+/* 语音字幕：静音环境 / 想复制内容时有用 */
+.vv-text{display:block;font-size:12px;color:#7c8492;margin-top:7px;line-height:1.5;
+  border-top:1px solid #2f3540;padding-top:6px;
+  word-wrap:break-word;overflow-wrap:break-word;white-space:pre-wrap;}
+.row.me .bub .vv-text{color:rgba(255,255,255,.72);border-top-color:rgba(0,0,0,.18);}
 .bub-img-ph{display:inline-block;font-size:12px;color:#8b93a1;background:#1a1e26;
   border-radius:8px;padding:7px 11px;margin-top:7px;line-height:1.5;}
 .bub-img-ph.err{color:#ff9b9b;}
@@ -333,6 +351,44 @@ input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
         <div class="fm-hint">达到上限后会一直保持安静，直到你回一句话才重新计数</div>
       </div>
 
+      <div class="fm-lb">语音合成</div>
+      <label class="sw">
+        <input type="checkbox" id="setTtsOn" onchange="window.onTtsToggle()">
+        <span>让角色能发语音</span>
+      </label>
+      <div class="fm-hint">
+        接入火山引擎（豆包语音）。开启后角色会输出 <code>[[VOICE: 要说的话]]</code>，由火山合成。<br>
+        <b>只做「角色发语音」，不支持你录音。</b>参数要去火山控制台创建应用后获取。
+      </div>
+
+      <div id="ttsCfg" style="display:none;">
+        <div class="fm-lb">App ID</div>
+        <input class="fm-ip" id="setTtsAppId" type="text" placeholder="控制台里的 App ID"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <div class="fm-lb">Access Token</div>
+        <input class="fm-ip" id="setTtsToken" type="text" placeholder="控制台里的 Access Token"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+
+        <div class="fm-lb">Cluster</div>
+        <input class="fm-ip" id="setTtsCluster" type="text" placeholder="volcano_tts"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="fm-hint">音色所属的业务集群。标准音色一般是 volcano_tts，大模型音色和复刻音色不一样</div>
+
+        <div class="fm-lb">默认音色</div>
+        <input class="fm-ip" id="setTtsVoice" type="text" placeholder="BV001_streaming"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <div class="fm-hint">单个角色可以在「角色编辑」里覆盖这个，各自用不同嗓子</div>
+
+        <div class="fm-lb">语速</div>
+        <input class="fm-ip" id="setTtsSpeed" type="number" step="0.1" min="0.2" max="3"
+               placeholder="1.0" inputmode="decimal">
+        <div class="fm-hint">0.2 ~ 3.0，1.0 是正常语速</div>
+
+        <div style="height:14px;"></div>
+        <button class="btn blk" onclick="window.testVoice()">测试语音</button>
+      </div>
+
       <div class="fm-lb">连接测试</div>
       <button class="btn blk" onclick="window.testApi()">测试 API 连接</button>
 
@@ -373,6 +429,10 @@ input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
       <textarea class="fm-tx" id="charDesc" placeholder="性格、背景、说话风格…"></textarea>
       <div class="fm-lb">开场白</div>
       <textarea class="fm-tx" id="charFirst" placeholder="进入对话时角色说的第一句话"></textarea>
+      <div class="fm-lb">语音音色（可留空）</div>
+      <input class="fm-ip" id="charVoice" type="text" placeholder="留空则用设置里的全局音色"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="fm-hint">火山引擎的音色 ID，比如 BV001_streaming。不同角色可以配不同嗓子。</div>
     </div>
     <div class="dlg-ft">
       <button class="btn" onclick="window.closeMask('maskChar')">取消</button>
@@ -457,7 +517,12 @@ var UI = {
   generating: false,
   genSeq: 0,
   visible: true,     // 页面是否在前台（主动问候必须先看这个）
-  armedAt: 0         // 进聊天页后的冷却截止时间，防止一进来就主动开口
+  armedAt: 0,        // 进聊天页后的冷却截止时间，防止一进来就主动开口
+  // 语音播放状态
+  playingMsg: null,  // 正在播放的语音所在的消息下标
+  playingIdx: null,  // 正在播放的语音在 media 里的下标
+  audio: null,       // 当前 Audio 对象
+  blobCache: {}      // "消息下标:媒体下标" -> Blob URL，重播秒开
 };
 var __confirmCb = null;   // {fn:'函数名', arg:参数} —— 不提前清空
 var EMOJIS = ['😀','🙂','😎','🤖','👧','👦','🧑','👩','🧙','🧛','👑','🐱',
@@ -534,7 +599,15 @@ function defaultSettings(){
     // 主动问候。默认关 —— 开着的话手机放着不动它会一直调 API 烧 token
     autoGreet: false,
     autoIdleMin: 10,        // 静默多久后主动开口
-    autoMax: 3              // 连续主动几条后闭嘴，直到用户回话
+    autoMax: 3,             // 连续主动几条后闭嘴，直到用户回话
+
+    // 语音合成（火山引擎 / 豆包语音）。默认关
+    ttsEnabled: false,
+    ttsAppId: '',
+    ttsToken: '',
+    ttsCluster: 'volcano_tts',
+    ttsVoice: 'BV001_streaming',
+    ttsSpeed: 1.0
   };
 }
 
@@ -553,6 +626,7 @@ function demoChars(){
       id: 'demo_xiaoyu',
       name: '林小雨',
       avatar: '👧',
+      voice: '',                 // 空 = 用设置里的全局音色
       desc: '你青梅竹马的邻家女孩，22岁，在美院读大四，学的是油画。性格开朗爱笑，有点小迷糊，但心思细腻。说话随性自然，爱用"诶"、"嘛"、"啦"这类语气词，偶尔会撒个小娇。喜欢在傍晚拉着你去天台看晚霞，坚信"晚霞是天空在偷偷画画"。讨厌香菜，怕黑，养了一只叫"芝麻"的橘猫。',
       first_mes: '诶，你终于来啦！我刚在天台画画来着，今天的晚霞超——级好看，可惜你错过了。\n话说，你今天怎么这么晚呀？'
     },
@@ -560,6 +634,7 @@ function demoChars(){
       id: 'demo_laozhou',
       name: '老周',
       avatar: '🧑',
+      voice: '',
       desc: '45岁的烧烤摊老板，东北人，在这个城市开了十几年店。嗓门大、心肠热，见谁都爱唠两句。说话带着浓重的东北味儿，常用"整"、"咋地"、"得嘞"、"那可不"。人生信条是"事儿再大，撸串儿就好了"。认识街坊邻居每一个人，谁家有难处他都偷偷帮衬。手上有一道被炭火烫的旧疤。',
       first_mes: '哟，来了啊！还是老位置坐呗。\n今儿羊肉串刚到的货，新鲜着呢，给你先整二十串？'
     }
@@ -577,11 +652,12 @@ function loadDB(){
     if (!o.convs) o.convs = [];
     // 补全字段
     var i, c, s = o.settings, d = defaultSettings();
-    // 空值回填默认值。apiKey / imgKey 是密码类字段，空着就是空着，不要回填。
-    // 注意 imgEnabled 是布尔：false 不属于 undefined/null/''，所以会被正确保留。
+    // 空值回填默认值。密钥类字段空着就是空着，不要回填。
+    // 注意各开关是布尔：false 不属于 undefined/null/''，所以会被正确保留。
+    var SECRET_KEYS = { apiKey: 1, imgKey: 1, ttsToken: 1 };
     for (var k in d){
       if (s[k] === undefined || s[k] === null || s[k] === ''){
-        if (k !== 'apiKey' && k !== 'imgKey') s[k] = d[k];
+        if (!SECRET_KEYS[k]) s[k] = d[k];
       }
     }
     if (!s.apiBase) s.apiBase = d.apiBase;
@@ -593,15 +669,21 @@ function loadDB(){
       if (c.desc === undefined) c.desc = '';
       if (c.first_mes === undefined) c.first_mes = '';
       if (!c.name) c.name = '未命名';
+      if (c.voice === undefined) c.voice = '';   // 空 = 用全局音色
     }
-    // 清理上次被系统强杀时残留的 streaming 标记，
-    // 否则那条消息会永远卡在「正在输入」状态
+    // 遍历消息：清残留状态 + 迁移字段
     for (i = 0; i < o.convs.length; i++){
       var cv = o.convs[i];
       if (!cv.msgs) cv.msgs = [];
       if (!cv.updatedAt) cv.updatedAt = cv.createdAt || 0;
       for (var j = 0; j < cv.msgs.length; j++){
-        if (cv.msgs[j].streaming) delete cv.msgs[j].streaming;
+        var mm = cv.msgs[j];
+        // 清理上次被系统强杀时残留的 streaming 标记，
+        // 否则那条消息会永远卡在「正在输入」状态
+        if (mm.streaming) delete mm.streaming;
+        // 老版本把图片存在 msg.images 里，后来改用 msg.media 装图片/表情包/语音。
+        // 不迁移的话老用户已存的配图会全部变成孤儿。
+        if (mm.images && !mm.media){ mm.media = mm.images; delete mm.images; }
       }
     }
     DB = o;
@@ -612,48 +694,47 @@ function loadDB(){
   }
 }
 
-/* 图片是 base64 字符串，字符数约等于字节数，用它做预算近似即可 */
-var IMG_BUDGET = 2.5 * 1024 * 1024;
+/* 媒体（图片 / 表情包 / 语音）都是 base64 字符串，
+   字符数约等于字节数，用它做预算近似即可。三者共用同一份额度。 */
+var MEDIA_BUDGET = 2.5 * 1024 * 1024;
 
-function imageBytes(){
-  var n = 0;
-  for (var i = 0; i < DB.convs.length; i++){
-    var ms = DB.convs[i].msgs || [];
-    for (var j = 0; j < ms.length; j++){
-      var arr = ms[j].images || [];
-      for (var k = 0; k < arr.length; k++){
-        if (arr[k].data) n += arr[k].data.length;
-      }
-    }
-  }
-  return n;
-}
-
-/* 回收配图数据。
-   只清 data 字段，文字内容永远不动；被清的图会在气泡里显示「已清理」。
-   超预算时从最旧的开始清；forceAll=true 时全清（配额已经撞墙的兜底）。 */
-function evictImages(forceAll){
-  var total = imageBytes();
-  if (!forceAll && total <= IMG_BUDGET) return 0;
-
+/* 收集全部有数据的媒体槽位，按时间从旧到新 */
+function collectMedia(){
   var holders = [];
   for (var i = 0; i < DB.convs.length; i++){
     var ms = DB.convs[i].msgs || [];
     for (var j = 0; j < ms.length; j++){
-      var arr = ms[j].images || [];
+      var arr = ms[j].media || [];
       for (var k = 0; k < arr.length; k++){
         if (arr[k].data) holders.push(arr[k]);
       }
     }
   }
   holders.sort(function(a, b){ return (a.ts || 0) - (b.ts || 0); });
+  return holders;
+}
+
+function mediaBytes(){
+  var holders = collectMedia(), n = 0;
+  for (var i = 0; i < holders.length; i++) n += holders[i].data.length;
+  return n;
+}
+
+/* 回收媒体数据。
+   只清 data 字段，文字内容永远不动；被清的会在气泡里显示「已清理」。
+   超预算时从最旧的开始清；forceAll=true 时全清（配额已经撞墙的兜底）。 */
+function evictMedia(forceAll){
+  var holders = collectMedia();
+  var total = 0, i;
+  for (i = 0; i < holders.length; i++) total += holders[i].data.length;
+  if (!forceAll && total <= MEDIA_BUDGET) return 0;
 
   var n = 0;
-  for (var h = 0; h < holders.length; h++){
-    if (!forceAll && total <= IMG_BUDGET) break;
-    total -= holders[h].data.length;
-    holders[h].data = null;
-    holders[h].evicted = true;
+  for (i = 0; i < holders.length; i++){
+    if (!forceAll && total <= MEDIA_BUDGET) break;
+    total -= holders[i].data.length;
+    holders[i].data = null;
+    holders[i].evicted = true;
     n++;
   }
   return n;
@@ -669,15 +750,15 @@ function writeStore(){
 function saveDB(){
   if (writeStore()) return true;
 
-  // 多半是配额满了：先清最旧的配图，再全清，最后才报错
-  var n = evictImages(false);
+  // 多半是配额满了：先清最旧的媒体，再全清，最后才报错
+  var n = evictMedia(false);
   if (n > 0 && writeStore()){
-    toast('存储空间不足，已清理 ' + n + ' 张旧配图');
+    toast('存储空间不足，已清理 ' + n + ' 条旧图片/语音');
     return true;
   }
-  var n2 = evictImages(true);
+  var n2 = evictMedia(true);
   if (n2 > 0 && writeStore()){
-    toast('存储空间不足，已清理全部 ' + n2 + ' 张配图');
+    toast('存储空间不足，已清理全部 ' + n2 + ' 条图片/语音');
     return true;
   }
   toast('保存失败：存储空间不足');
@@ -697,6 +778,8 @@ function getConv(id){
 /* ------------------------- 视图切换 ------------------------- */
 function go(v){
   try{
+    // 离开聊天页就停掉语音并释放 Blob URL，别让声音在别的页面继续响
+    if (v !== 'chat'){ stopVoice(); clearBlobCache(); }
     UI.view = v;
     var ps = document.querySelectorAll('.page');
     for (var i = 0; i < ps.length; i++) ps[i].className = 'page';
@@ -802,6 +885,7 @@ function newChar(){
   $('charName').value = '';
   $('charDesc').value = '';
   $('charFirst').value = '';
+  $('charVoice').value = '';
   renderEmojiGrid();
   openMask('maskChar');
 }
@@ -816,6 +900,7 @@ function editChar(id){
     $('charName').value = c.name || '';
     $('charDesc').value = c.desc || '';
     $('charFirst').value = c.first_mes || '';
+    $('charVoice').value = c.voice || '';
     renderEmojiGrid();
     openMask('maskChar');
   }catch(e){ toast('打开编辑失败'); }
@@ -847,14 +932,17 @@ function saveChar(){
     if (!name){ toast('请填写角色名称'); return; }
     var desc = trim($('charDesc').value);
     var first = trim($('charFirst').value);
+    var voice = trim($('charVoice').value);
 
     if (UI.editCharId){
       var c = getChar(UI.editCharId);
       if (!c){ toast('角色不存在'); return; }
-      c.name = name; c.avatar = UI.editAvatar; c.desc = desc; c.first_mes = first;
+      c.name = name; c.avatar = UI.editAvatar; c.desc = desc;
+      c.first_mes = first; c.voice = voice;
       toast('已保存「' + name + '」');
     } else {
-      DB.chars.push({ id: uid(), name: name, avatar: UI.editAvatar, desc: desc, first_mes: first });
+      DB.chars.push({ id: uid(), name: name, avatar: UI.editAvatar, desc: desc,
+                      first_mes: first, voice: voice });
       toast('已添加「' + name + '」');
     }
     saveDB();
@@ -987,7 +1075,8 @@ function normalizeCard(o){
       name: name.substring(0, 40),
       avatar: avatar,
       desc: parts.join('\n'),
-      first_mes: first
+      first_mes: first,
+      voice: ''            // 角色卡里没有音色概念，留空用全局
     };
   }catch(e){ return null; }
 }
@@ -1050,6 +1139,8 @@ function switchConv(id){
   try{
     var conv = getConv(id);
     if (!conv){ toast('对话不存在'); return; }
+    stopVoice();
+    clearBlobCache();
     UI.convId = id;
     UI.charId = conv.charId;
     closeMask('maskConv');
@@ -1122,13 +1213,20 @@ function openConvList(){
 /* 模型想发图时输出 [[IMG: 描述]]。content 里保留原文不剥离：
    导出的 JSON 还能重新解析，模型后续轮次也能看到自己发过图的模式。 */
 
-/* 模型发图的两种标记：[[IMG: 照片描述]] 和 [[STICKER: 表情包描述]] */
+/* 模型可以发的三种媒体标记：
+     [[IMG: 照片描述]]      -> 生成图片
+     [[STICKER: 表情包描述]] -> 生成表情包（固定画风、小图）
+     [[VOICE: 要说的话]]    -> 合成语音 */
 var IMG_TAG = '[[IMG:';
 var STICKER_TAG = '[[STICKER:';
-var MARKER_TAGS = [IMG_TAG, STICKER_TAG];
-/* 描述里不允许出现 '|'：'|' 是连发多条的分隔符，让气泡切分保持权威。
-   代价是描述里真写了 '|' 时这条标记不生效、按原文显示（罕见且无害）。 */
-var MARKER_RE = /\[\[(IMG|STICKER):\s*([^\]\n|]+?)\s*\]\]/g;
+var VOICE_TAG = '[[VOICE:';
+var MARKER_TAGS = [IMG_TAG, STICKER_TAG, VOICE_TAG];
+var MARKER_KINDS = ['img', 'sticker', 'voice'];
+var KIND_BY_TAG = { 'IMG': 'img', 'STICKER': 'sticker', 'VOICE': 'voice' };
+
+/* 标记内容里不允许出现 '|'：'|' 是连发多条的分隔符，让气泡切分保持权威。
+   代价是内容里真写了 '|' 时这条标记不生效、按原文显示（罕见且无害）。 */
+var MARKER_RE = /\[\[(IMG|STICKER|VOICE):\s*([^\]\n|]+?)\s*\]\]/g;
 
 /* 找出尾部「像某个标记的开头但还没打完」的位置，没有则返回 -1。
    流式输出是一个字一个字来的，[[IMG / [[STIC 这些中间态必须兜住，
@@ -1145,8 +1243,8 @@ function partialTagStart(s){
         if (best < 0 || at < best){
           best = at;
           // 记住是哪个标记的前缀，占位文案才不会说错
-          // （'[[' 两个标记都匹配，这时保持默认 img）
-          kind = (t === 1) ? 'sticker' : 'img';
+          // （'[[' 三个标记都匹配，这时保持先匹配到的那个）
+          kind = MARKER_KINDS[t];
         }
         break;
       }
@@ -1162,7 +1260,7 @@ function openTagStart(tail){
     var at = tail.indexOf(MARKER_TAGS[i]);
     if (at >= 0 && (best < 0 || at < best)){
       best = at;
-      kind = (i === 1) ? 'sticker' : 'img';
+      kind = MARKER_KINDS[i];
     }
   }
   return (best < 0) ? null : { at: best, kind: kind };
@@ -1175,7 +1273,7 @@ function splitImgMarkers(content){
   var last = 0, m;
   while ((m = MARKER_RE.exec(content)) !== null){
     if (m.index > last) out.push({ type: 'text', text: content.substring(last, m.index) });
-    out.push({ type: 'img', kind: (m[1] === 'STICKER' ? 'sticker' : 'img'), prompt: m[2] });
+    out.push({ type: 'img', kind: KIND_BY_TAG[m[1]] || 'img', prompt: m[2] });
     last = m.index + m[0].length;
   }
   var tail = content.substring(last);
@@ -1267,7 +1365,7 @@ function renderBubbleInner(m, msgIdx, text, cursor){
   try{ parts = splitImgMarkers(text); }
   catch(e){ return esc(text); }
 
-  var imgs = m.images || [];
+  var imgs = m.media || [];
   var h = '';
 
   for (var i = 0; i < parts.length; i++){
@@ -1275,19 +1373,39 @@ function renderBubbleInner(m, msgIdx, text, cursor){
     if (p.type === 'text'){ h += esc(p.text); continue; }
 
     var idx = cursor.n;
-    if (!p.pending) cursor.n++;      // 半截标记不占图片序号
+    if (!p.pending) cursor.n++;      // 半截标记不占媒体序号
     var im = imgs[idx];
-    var waitTxt = (p.kind === 'sticker') ? '🖼 正在做表情包…' : '📷 正在生成图片…';
+    var kind = (im && im.kind) || p.kind || 'img';
+    var isVoice = (kind === 'voice');
+    var waitTxt = (kind === 'sticker') ? '🖼 正在做表情包…'
+                : isVoice ? '🎙 正在合成语音…'
+                : '📷 正在生成图片…';
 
-    if (im && im.data){
-      var isSt = (im.kind === 'sticker');
+    if (im && im.data && isVoice){
+      h += renderVoice(m, msgIdx, idx, im);
+    } else if (im && im.data){
+      var isSt = (kind === 'sticker');
       h += '<img class="' + (isSt ? 'bub-sticker' : 'bub-img') + '" src="' + esc(im.data)
          + '" alt="' + esc(im.prompt || '配图') + '">';
     } else if (im && im.error){
       h += '<span class="bub-img-ph err tap" onclick="window.retryImage(' + msgIdx + ',' + idx + ')">'
-         + '配图失败：' + esc(shorten(im.error, 36)) + '（点击重试）</span>';
+         + (isVoice ? '语音生成失败：' : '配图失败：') + esc(shorten(im.error, 34))
+         + '（点击重试）</span>';
+      // 语音失败时把文字露出来，不然这句话就彻底看不见了
+      if (isVoice && im.prompt) h += '<span class="vv-text">' + esc(im.prompt) + '</span>';
     } else if (im && im.evicted){
-      h += '<span class="bub-img-ph">🖼 配图已清理（存储空间不足）</span>';
+      h += '<span class="bub-img-ph">'
+         + (isVoice ? '🎙 语音已清理（存储空间不足）' : '🖼 配图已清理（存储空间不足）')
+         + '</span>';
+    } else if (im && im.skipped){
+      // 对应功能没开（表情包关了 / 没配生图 / 没配语音）。
+      // 不显示「正在生成…」，否则会永远转圈。
+      if (isVoice){
+        h += '<span class="bub-img-ph">🎙 语音未生成（未开启语音）</span>';
+        if (im.prompt) h += '<span class="vv-text">' + esc(im.prompt) + '</span>';
+      } else {
+        h += '<span class="bub-img-ph">🖼 ' + esc(shorten(im.prompt, 30)) + '</span>';
+      }
     } else if (p.pending){
       // 流式中的半截标记显示占位；流已结束还没闭合说明模型写错了，
       // 当普通文字显示出来，别让它永远转圈
@@ -1296,11 +1414,128 @@ function renderBubbleInner(m, msgIdx, text, cursor){
     } else if (im){
       h += '<span class="bub-img-ph">' + waitTxt + '</span>';
     } else {
-      // 有描述但没生成（比如生图没配置）
-      h += '<span class="bub-img-ph">🖼 ' + esc(shorten(p.prompt, 30)) + '</span>';
+      // 有内容但没生成（对应功能没配置）
+      h += '<span class="bub-img-ph">' + waitTxt + '</span>';
+      if (isVoice && p.prompt) h += '<span class="vv-text">' + esc(p.prompt) + '</span>';
     }
   }
   return h;
+}
+
+/* =========================================================================
+   语音消息：渲染 + 播放
+   ========================================================================= */
+
+function estimateSec(text){
+  // 中文约 4 字/秒。只在拿不到真实时长时兜底。
+  return Math.max(1, Math.min(60, Math.round(String(text || '').length / 4)));
+}
+
+function renderVoice(m, msgIdx, idx, im){
+  var playing = (UI.playingMsg === msgIdx && UI.playingIdx === idx);
+  var sec = im.sec || estimateSec(im.prompt);
+  var w = Math.min(190, 92 + sec * 6);      // 宽度随时长走，但有上下限
+
+  var h = '<span class="bub-voice' + (playing ? ' on' : '') + '"'
+        + ' style="min-width:' + w + 'px"'
+        + ' onclick="window.toggleVoice(' + msgIdx + ',' + idx + ')">'
+        +   '<span class="vv-ico">' + (playing ? '⏸' : '▶') + '</span>'
+        +   '<span class="vv-wave">▁▃▅▂▄</span>'
+        +   '<span class="vv-sec">' + sec + '″</span>'
+        + '</span>';
+  // 字幕：静音环境、想复制内容、播放失败时都有用
+  if (im.prompt) h += '<span class="vv-text">' + esc(im.prompt) + '</span>';
+  return h;
+}
+
+/* base64 data URL -> Blob。
+   audio 元素用 Blob URL 比 data URL 可靠得多（WKWebView 对后者支持不稳） */
+function dataUrlToBlob(dataUrl){
+  var s = String(dataUrl || '');
+  var comma = s.indexOf(',');
+  if (comma < 0) return null;
+  var mime = s.substring(5, comma).split(';')[0] || 'audio/mpeg';
+  var bin = window.atob(s.substring(comma + 1));
+  var len = bin.length;
+  var bytes = new Uint8Array(len);
+  for (var i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+  return new Blob([bytes], { type: mime });
+}
+
+/* 通知壳切换音频通道类别。
+   不切的话，静音开关打开时 WKWebView 完全不出声（默认走 Ambient）。 */
+function setAudioSession(on){
+  try{
+    if (window.webkit && window.webkit.messageHandlers &&
+        window.webkit.messageHandlers.audioSession){
+      window.webkit.messageHandlers.audioSession.postMessage({ on: !!on });
+    }
+  }catch(e){}
+}
+
+/* 释放缓存的 Blob URL。切对话/离开聊天页时调用 */
+function clearBlobCache(){
+  try{
+    var c = UI.blobCache || {};
+    for (var k in c){ if (c[k]) { try{ URL.revokeObjectURL(c[k]); }catch(e){} } }
+  }catch(e){}
+  UI.blobCache = {};
+}
+
+function stopVoice(){
+  try{
+    if (UI.audio){ UI.audio.pause(); UI.audio.onended = null; UI.audio.onerror = null; }
+  }catch(e){}
+  UI.audio = null;
+  setAudioSession(false);
+  if (UI.playingMsg !== null && UI.playingMsg !== undefined){
+    UI.playingMsg = null;
+    UI.playingIdx = null;
+    renderChat(false);
+  }
+}
+
+function toggleVoice(msgIdx, idx){
+  try{
+    var conv = getConv(UI.convId);
+    if (!conv) return;
+    var m = conv.msgs[msgIdx];
+    if (!m || !m.media || !m.media[idx]) return;
+    var im = m.media[idx];
+    if (!im.data){ toast('这条语音没有数据'); return; }
+
+    var wasPlaying = (UI.playingMsg === msgIdx && UI.playingIdx === idx);
+    stopVoice();
+    if (wasPlaying) return;              // 再点一次 = 停止
+
+    UI.blobCache = UI.blobCache || {};
+    var key = msgIdx + ':' + idx;
+    var url = UI.blobCache[key];
+    if (!url){
+      var blob = dataUrlToBlob(im.data);
+      if (!blob){ toast('语音数据损坏'); return; }
+      url = URL.createObjectURL(blob);
+      UI.blobCache[key] = url;           // 缓存着，重播秒开
+    }
+
+    setAudioSession(true);
+    var a = new Audio(url);
+    UI.audio = a;
+    UI.playingMsg = msgIdx;
+    UI.playingIdx = idx;
+
+    a.onended = function(){ stopVoice(); };
+    a.onerror = function(){ stopVoice(); toast('播放失败，音频格式可能不支持'); };
+
+    var pr = a.play();
+    if (pr && typeof pr['catch'] === 'function'){
+      pr['catch'](function(e){
+        stopVoice();
+        toast('播放失败：' + ((e && e.message) ? e.message : '被系统拦截'));
+      });
+    }
+    renderChat(false);                   // 只更新播放态
+  }catch(e){ toast('播放出错：' + e.message); }
 }
 
 /* ------------------------- 渲染聊天 ------------------------- */
@@ -1475,7 +1710,11 @@ function buildMessages(conv, c, nudge){
     if (trim(c.desc)) sys += '角色设定：\n' + trim(c.desc) + '\n';
     sys += '\n你正在扮演' + c.name + '，全程用中文以' + c.name + '的口吻自然对话，不要暴露自己是AI，回复不要带*号动作描述，直接说话';
 
-    if (imgReady()){
+    // 能发什么就开放什么，不能发的明确禁掉 —— 否则角色会空口承诺
+    var canImg = imgReady();
+    var canTts = ttsReady();
+
+    if (canImg){
       sys += '\n\n你可以给用户发图片。当你想发图片时，在回复里单独起一行写：\n'
            + '[[IMG: 用中文详细描述这张图片的画面]]\n'
            + '系统会自动把它变成一张真实的图片发给用户。'
@@ -1485,13 +1724,22 @@ function buildMessages(conv, c, nudge){
              + '[[STICKER: 描述表情包的内容和情绪]]\n'
              + '会生成一张卡通表情图片。心情有起伏时偶尔发一个就好，不要连着发。';
       }
-    } else {
-      // 没开图片功能时必须说清楚，否则角色会承诺发图却发不出来
-      sys += '\n\n你只能发送纯文字消息。不要声称发送图片、照片、文件或链接，'
-           + '也不要说你做了任何你做不到的事（比如发微信、发朋友圈、打电话）。'
-           + '需要提到照片、画面时，用语言把它描述出来即可。'
-           + '你可以正常使用 emoji 表情符号。';
     }
+    if (canTts){
+      sys += '\n\n你也可以发语音。想发语音时在回复里单独起一行写：\n'
+           + '[[VOICE: 你要说的话]]\n'
+           + '系统会自动把它合成成语音发出去。语音要短，一两句话，'
+           + '像微信语音那样随口说的感觉；以文字为主，不要每句都发语音。';
+    }
+    if (!canImg){
+      sys += '\n\n你不能发送图片或照片，也不要声称发了图片。';
+    }
+    if (!canTts){
+      sys += '\n\n你不能发送语音。';
+    }
+    sys += '\n\n不要声称你做了任何你做不到的事（比如发微信、发朋友圈、打电话）。'
+         + '需要提到照片、画面时，用语言把它描述出来即可。'
+         + '你可以正常使用 emoji 表情符号。';
 
     if (DB.settings.msgSplit){
       sys += '\n\n聊天时请像真人发微信那样，把想说的话拆成 1~3 条短消息，'
@@ -1817,7 +2065,7 @@ function finishImage(im, src, done){
     im.error = null;
     im.evicted = false;
     im.ts = Date.now();
-    evictImages(false);     // 主动回收，别等撞配额
+    evictMedia(false);      // 主动回收，别等撞配额
     saveDB();
     done();
   }
@@ -1829,51 +2077,187 @@ function finishImage(im, src, done){
   });
 }
 
-/* 流式结束后调用：把 content 里的 [[IMG: ...]] / [[STICKER: ...]] 变成真图片。
-   注意 msg.images 必须和标记一一对应（哪怕某些不生成），
-   否则 renderBubbleInner 按下标取图会错位。 */
-function attachImages(conv, msg){
+/* 语音不走压缩（浏览器里没法压 mp3），但要探测一下真实时长，
+   让气泡宽度和秒数显示对得上。探不到就用字数估算。 */
+function finishVoice(im, dataUrl, done){
+  im.data = dataUrl;
+  im.error = null;
+  im.evicted = false;
+  im.ts = Date.now();
+  im.sec = estimateSec(im.prompt);
+
+  function finish(){
+    evictMedia(false);
+    saveDB();
+    done();
+  }
+
+  try{
+    var probe = new Audio();
+    var settled = false;
+    function give(){
+      if (settled) return;
+      settled = true;
+      probe.onloadedmetadata = null;
+      probe.onerror = null;
+      finish();
+    }
+    probe.onloadedmetadata = function(){
+      if (isFinite(probe.duration) && probe.duration > 0){
+        im.sec = Math.max(1, Math.round(probe.duration));
+      }
+      give();
+    };
+    probe.onerror = give;
+    probe.preload = 'metadata';
+    probe.src = dataUrl;
+    setTimeout(give, 4000);      // 探测失败也别卡住流程
+  }catch(e){ finish(); }
+}
+
+/* =========================================================================
+   语音合成 —— 火山引擎（豆包语音）
+   接口不是 OpenAI 那套：鉴权头和请求体都是火山自己的形状。
+   V1 是非流式，一次请求返回全部音频，正好契合我们的通道。
+   ========================================================================= */
+
+var TTS_URL = 'https://openspeech.bytedance.com/api/v1/tts';
+var TTS_MAX_CHARS = 300;   // 官方上限 1024 字节 UTF-8；中文 3 字节/字，留足余量
+
+function ttsReady(){
+  var s = DB.settings;
+  return !!(s.ttsEnabled && trim(s.ttsAppId) && trim(s.ttsToken));
+}
+
+/* 角色自己的音色优先，没设就退回全局默认 */
+function voiceForChar(charId){
+  var c = getChar(charId);
+  if (c && trim(c.voice)) return trim(c.voice);
+  return trim(DB.settings.ttsVoice) || 'BV001_streaming';
+}
+
+function generateVoice(text, voiceType, cb){
+  var s = DB.settings;
+  var say = trim(text);
+  if (!say){ cb(null, '没有要合成的内容'); return; }
+  if (say.length > TTS_MAX_CHARS) say = say.substring(0, TTS_MAX_CHARS);
+
+  var token = trim(s.ttsToken);
+  var headers = {
+    'Content-Type': 'application/json',
+    // 注意：Bearer 和 token 之间是【分号】，不是空格。写错直接 401。
+    'Authorization': 'Bearer;' + token
+  };
+  var body = JSON.stringify({
+    app: {
+      appid: trim(s.ttsAppId),
+      token: token,                                 // 正文里这个可以随便填，真正鉴权在 header
+      cluster: trim(s.ttsCluster) || 'volcano_tts'
+    },
+    user: { uid: 'aichat' },
+    audio: {
+      voice_type: voiceType || 'BV001_streaming',
+      encoding: 'mp3',        // 默认是 pcm，<audio> 播不了，必须显式指定
+      speed_ratio: Number(s.ttsSpeed) || 1.0
+    },
+    request: {
+      reqid: uid(),
+      text: say,
+      text_type: 'plain',
+      operation: 'query'      // http 只支持 query（非流式）
+    }
+  });
+
+  function handle(raw, status){
+    if (status >= 400){ cb(null, 'HTTP ' + status + ' ' + shorten(raw, 100)); return; }
+    var j = null;
+    try{ j = JSON.parse(raw); }
+    catch(e){ cb(null, '响应不是 JSON：' + shorten(raw, 80)); return; }
+    // HTTP 200 不代表成功，必须看业务码
+    if (!j || j.code !== 3000){
+      cb(null, (j && j.message) ? j.message : ('合成失败（code=' + (j ? j.code : '?') + '）'));
+      return;
+    }
+    if (!j.data){ cb(null, '响应里没有音频数据'); return; }
+    cb('data:audio/mp3;base64,' + j.data, null);
+  }
+
+  if (hasNative()){
+    var buf = '';
+    nativeRequest({
+      url: TTS_URL, method: 'POST', headers: headers, body: body,
+      stream: false, timeout: 60,
+      onChunk: function(t){ buf += t; },
+      onDone: function(status){ handle(buf, status); },
+      onError: function(e){ cb(null, e); }
+    });
+  } else {
+    // 浏览器直连会被 CORS 拦（火山不返回放行头），这条只是形态正确的降级路径
+    fetch(TTS_URL, { method: 'POST', headers: headers, body: body }).then(function(r){
+      return r.text().then(function(t){ handle(t, r.status); });
+    })['catch'](function(e){ cb(null, e.message || String(e)); });
+  }
+}
+
+/* 判断某个标记当前能不能生成 */
+function mediaSkipped(kind){
+  if (kind === 'voice') return !ttsReady();
+  if (kind === 'sticker') return !imgReady() || !DB.settings.stickerOn;
+  return !imgReady();
+}
+
+/* 流式结束后调用：把 content 里的 [[IMG:]] / [[STICKER:]] / [[VOICE:]] 变成真内容。
+   注意 msg.media 必须和标记一一对应（哪怕某些不生成），
+   否则 renderBubbleInner 按下标取会错位。 */
+function attachMedia(conv, msg){
   try{
     var marks = collectMarkers(msg.content);
     if (!marks.length) return;
 
-    if (!msg.images || msg.images.length !== marks.length){
-      msg.images = [];
+    if (!msg.media || msg.media.length !== marks.length){
+      msg.media = [];
       for (var i = 0; i < marks.length; i++){
-        msg.images.push({
+        msg.media.push({
           kind: marks[i].kind,
           prompt: marks[i].prompt,
           data: null, error: null, evicted: false,
-          // 表情包关掉了就不生成，但保留占位以维持下标对齐
-          skipped: (marks[i].kind === 'sticker' && !DB.settings.stickerOn),
+          skipped: mediaSkipped(marks[i].kind),   // 功能没开也保留占位，维持下标对齐
           ts: Date.now()
         });
       }
     }
 
-    if (!imgReady()){
-      // 没配生图：只留描述占位，不报错、不打扰
-      renderChat(true);
-      return;
-    }
     renderChat(true);
 
-    for (var k = 0; k < msg.images.length; k++){
+    for (var k = 0; k < msg.media.length; k++){
       (function(im){
-        if (im.skipped) return;
+        if (im.skipped || im.data) return;
         im.error = null;
-        generateImage(im.prompt, im.kind, function(src, err){
-          if (err){
-            im.error = err;
-            renderChat(true);
-            toast('配图失败：' + shorten(err, 30));
-            return;
-          }
-          finishImage(im, src, function(){ renderChat(true); });
-        });
-      })(msg.images[k]);
+        if (im.kind === 'voice'){
+          var voice = voiceForChar(conv.charId);
+          generateVoice(im.prompt, voice, function(src, err){
+            if (err){
+              im.error = err;
+              renderChat(true);
+              toast('语音失败：' + shorten(err, 30));
+              return;
+            }
+            finishVoice(im, src, function(){ renderChat(true); });
+          });
+        } else {
+          generateImage(im.prompt, im.kind, function(src, err){
+            if (err){
+              im.error = err;
+              renderChat(true);
+              toast('配图失败：' + shorten(err, 30));
+              return;
+            }
+            finishImage(im, src, function(){ renderChat(true); });
+          });
+        }
+      })(msg.media[k]);
     }
-  }catch(e){ /* 配图失败绝不影响文字消息 */ }
+  }catch(e){ /* 媒体生成失败绝不影响文字消息 */ }
 }
 
 function retryImage(msgIdx, imgIdx){
@@ -1881,26 +2265,33 @@ function retryImage(msgIdx, imgIdx){
     var conv = getConv(UI.convId);
     if (!conv) return;
     var msg = conv.msgs[msgIdx];
-    if (!msg || !msg.images || !msg.images[imgIdx]) return;
-    var im = msg.images[imgIdx];
-    if (!im.prompt){ toast('这条没有配图描述'); return; }
-    if (!imgReady()){ toast('请先在设置里配置生图接口'); go('settings'); return; }
+    if (!msg || !msg.media || !msg.media[imgIdx]) return;
+    var im = msg.media[imgIdx];
+    if (!im.prompt){ toast('这条没有内容描述'); return; }
+
+    var isVoice = (im.kind === 'voice');
+    if (isVoice && !ttsReady()){ toast('请先在设置里配置语音接口'); go('settings'); return; }
+    if (!isVoice && !imgReady()){ toast('请先在设置里配置生图接口'); go('settings'); return; }
 
     im.data = null;
     im.error = null;
     im.evicted = false;
     renderChat(false);
-    toast('重新生成中…');
+    toast(isVoice ? '重新合成中…' : '重新生成中…');
 
-    generateImage(im.prompt, im.kind, function(src, err){
+    function done(src, err){
       if (err){
         im.error = err;
         renderChat(false);
-        toast('配图失败：' + shorten(err, 30));
+        toast((isVoice ? '语音失败：' : '配图失败：') + shorten(err, 30));
         return;
       }
-      finishImage(im, src, function(){ renderChat(false); });
-    });
+      if (isVoice) finishVoice(im, src, function(){ renderChat(false); });
+      else finishImage(im, src, function(){ renderChat(false); });
+    }
+
+    if (isVoice) generateVoice(im.prompt, voiceForChar(conv.charId), done);
+    else generateImage(im.prompt, im.kind, done);
   }catch(e){ toast('重试失败'); }
 }
 
@@ -1966,7 +2357,7 @@ function genReply(conv, c, nudge){
       }
       UI.generating = false;
       setBusy(false);
-      attachImages(conv, aiMsg);   // 扫描 [[IMG: ...]]，有就异步生图（内部会 renderChat）
+      attachMedia(conv, aiMsg);    // 扫描 [[IMG:]]/[[STICKER:]]/[[VOICE:]]，异步生成（内部会 renderChat）
       saveDB();
       renderChat(true);
     },
@@ -2087,6 +2478,14 @@ function fillSettings(){
     $('setAutoIdle').value = s.autoIdleMin;
     $('setAutoMax').value = s.autoMax;
     onAutoToggle();
+
+    $('setTtsOn').checked = !!s.ttsEnabled;
+    $('setTtsAppId').value = s.ttsAppId || '';
+    $('setTtsToken').value = s.ttsToken || '';
+    $('setTtsCluster').value = s.ttsCluster || '';
+    $('setTtsVoice').value = s.ttsVoice || '';
+    $('setTtsSpeed').value = s.ttsSpeed;
+    onTtsToggle();
   }catch(e){ toast('读取设置失败'); }
 }
 
@@ -2106,6 +2505,55 @@ function onAutoToggle(){
   try{
     $('autoCfg').style.display = $('setAutoOn').checked ? 'block' : 'none';
   }catch(e){}
+}
+
+function onTtsToggle(){
+  try{
+    $('ttsCfg').style.display = $('setTtsOn').checked ? 'block' : 'none';
+  }catch(e){}
+}
+
+/* 把语音配置从表单读进 DB.settings（不落盘，由调用方决定） */
+function readTtsForm(){
+  var s = DB.settings;
+  s.ttsEnabled = !!$('setTtsOn').checked;
+  s.ttsAppId = trim($('setTtsAppId').value);
+  s.ttsToken = trim($('setTtsToken').value);
+  s.ttsCluster = trim($('setTtsCluster').value) || 'volcano_tts';
+  s.ttsVoice = trim($('setTtsVoice').value) || 'BV001_streaming';
+  var sp = Number($('setTtsSpeed').value);
+  s.ttsSpeed = (isNaN(sp) || sp <= 0) ? 1.0 : Math.min(3, Math.max(0.2, sp));
+}
+
+function testVoice(){
+  try{
+    readTtsForm();
+    saveDB();
+    if (!trim(DB.settings.ttsAppId) || !trim(DB.settings.ttsToken)){
+      toast('请先填写 App ID 和 Access Token');
+      return;
+    }
+    toast('正在合成测试语音…');
+    generateVoice('你好，这是一条测试语音。', trim(DB.settings.ttsVoice), function(src, err){
+      if (err){ toast('❌ ' + shorten(err, 55)); return; }
+      var kb = Math.round(src.length / 1024);
+      toast('✅ 合成成功（约 ' + kb + ' KB），正在播放…');
+      // 直接放一遍，让用户确认真的能出声
+      try{
+        setAudioSession(true);
+        var a = new Audio(src);
+        a.onended = function(){ setAudioSession(false); };
+        a.onerror = function(){ setAudioSession(false); toast('合成成功但播放失败'); };
+        var pr = a.play();
+        if (pr && typeof pr['catch'] === 'function'){
+          pr['catch'](function(e){
+            setAudioSession(false);
+            toast('合成 OK，但播放被拦：' + ((e && e.message) ? e.message : ''));
+          });
+        }
+      }catch(e){ setAudioSession(false); }
+    });
+  }catch(e){ toast('测试失败：' + e.message); }
 }
 
 /* 把图片配置从表单读进 DB.settings（不落盘，由调用方决定） */
@@ -2156,9 +2604,12 @@ function saveSettings(){
     DB.settings.autoMax = (isNaN(am) || am < 1) ? 3 : Math.min(20, Math.round(am));
 
     readImgForm();
+    readTtsForm();
     var warn = '';
     if (DB.settings.imgEnabled && !imgReady()){
       warn = '（图片功能已开，但生图接口还没配全）';
+    } else if (DB.settings.ttsEnabled && !ttsReady()){
+      warn = '（语音功能已开，但火山参数还没填全）';
     } else if (DB.settings.autoGreet){
       warn = '（主动问候已开，会在你不动手机时调用 API）';
     }
@@ -2382,9 +2833,12 @@ window.saveSettings = saveSettings;
 window.onTempChange = onTempChange;
 window.onImgToggle = onImgToggle;
 window.onAutoToggle = onAutoToggle;
+window.onTtsToggle = onTtsToggle;
 window.testApi = testApi;
 window.testImageApi = testImageApi;
+window.testVoice = testVoice;
 window.retryImage = retryImage;
+window.toggleVoice = toggleVoice;
 window.autoTick = autoTick;
 
 window.exportConv = exportConv;
