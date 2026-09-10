@@ -64,7 +64,8 @@ sandbox.localStorage = {
 
 /* 把要测的函数导出到返回值 */
 var exportTail = '\nreturn { splitImgMarkers: splitImgMarkers, renderBubbleBody: renderBubbleBody,'
-  + ' esc: esc, shorten: shorten, countImgMarkers: countImgMarkers,'
+  + ' esc: esc, shorten: shorten, collectMarkers: collectMarkers, splitBubbles: splitBubbles,'
+  + ' shouldAutoGreet: shouldAutoGreet,'
   + ' evictImages: evictImages, imageBytes: imageBytes, _db: function(){ return DB; },'
   + ' _setDB: function(d){ DB = d; }, _defaults: defaultSettings };';
 
@@ -236,6 +237,102 @@ eq('文字一条没丢', api._db().convs[0].msgs[0].content, 'msg0');
 api._setDB(mkDB(6, 600 * 1024));
 eq('forceAll 全清', api.evictImages(true), 6);
 eq('全清后字节为 0', api.imageBytes(), 0);
+
+/* --- 7. 连发多条 --- */
+console.log('\n[7] splitBubbles 连发多条');
+eq('单条不分', api.splitBubbles('你好', false).length, 1);
+var b2 = api.splitBubbles('你好|||在吗', false);
+eq('切成两条', b2.length, 2);
+eq('第一条内容', b2[0], '你好');
+eq('第二条内容', b2[1], '在吗');
+eq('三条', api.splitBubbles('a|||b|||c', false).length, 3);
+
+eq('流式中结尾单个 | 要藏起来', api.splitBubbles('你好|', true).length, 1);
+eq('流式中结尾 || 要藏起来', api.splitBubbles('你好||', true).length, 1);
+eq('流式中结尾 ||| 不产生空气泡', api.splitBubbles('你好|||', true).length, 1);
+eq('流式下已分好的两条不受影响', api.splitBubbles('你好|||在', true).length, 2);
+eq('非流式下 | 是字面量', api.splitBubbles('你好|', false)[0], '你好|');
+eq('非流式下 || 是字面量', api.splitBubbles('a||b', false)[0], 'a||b');
+eq('空内容留一个空段', api.splitBubbles('', false).length, 1);
+
+/* --- 8. 多气泡渲染 --- */
+console.log('\n[8] 多气泡渲染');
+var hMulti = api.renderBubbleBody({ content: '第一句|||第二句|||第三句' }, 0);
+eq('渲染出 3 个气泡', (hMulti.match(/class="bub"/g) || []).length, 3);
+has('第一句在', hMulti, '第一句');
+has('第三句在', hMulti, '第三句');
+hasNot('分隔符不外泄', hMulti, '|||');
+
+var mBoth = { content: '看这个 [[IMG: 晚霞]]|||好看吧',
+              images: [{ kind: 'img', prompt: '晚霞', data: 'data:image/jpeg;base64,ZZ' }] };
+var hBoth = api.renderBubbleBody(mBoth, 0);
+eq('图文分条 -> 2 个气泡', (hBoth.match(/class="bub"/g) || []).length, 2);
+has('图片挂在第一段', hBoth, 'data:image/jpeg;base64,ZZ');
+has('文字在第二段', hBoth, '好看吧');
+
+/* --- 9. 表情包 --- */
+console.log('\n[9] 表情包标记');
+var mk = api.collectMarkers('文字 [[IMG: 风景]] 中间 [[STICKER: 大笑]] 结尾');
+eq('收集到 2 个标记', mk.length, 2);
+eq('第一个是图片', mk[0].kind, 'img');
+eq('第二个是表情包', mk[1].kind, 'sticker');
+eq('图片描述解析正确', mk[0].prompt, '风景');
+eq('表情包描述解析正确', mk[1].prompt, '大笑');
+
+var hSt = api.renderBubbleBody({ content: '[[STICKER: 大笑]]',
+  images: [{ kind: 'sticker', prompt: '大笑', data: 'data:image/jpeg;base64,ST' }] }, 0);
+has('表情包用小图样式', hSt, 'class="bub-sticker"');
+
+var hStPart = api.renderBubbleBody({ content: '等我 [[STIC', streaming: true }, 0);
+hasNot('流式中 [[STIC 不泄露', hStPart, '[[STIC');
+has('显示表情包占位', hStPart, '正在做表情包');
+
+// 下标对齐：关了表情包也要占位，否则后面的图会串位
+var mSkip = { content: '[[STICKER: 甲]]|||[[IMG: 乙]]',
+              images: [{ kind: 'sticker', prompt: '甲', skipped: true },
+                       { kind: 'img', prompt: '乙', data: 'data:image/jpeg;base64,EE' }] };
+var hSkip = api.renderBubbleBody(mSkip, 0);
+has('被跳过的表情包后面的图片仍正确', hSkip, 'data:image/jpeg;base64,EE');
+
+/* --- 10. 主动问候真值表 --- */
+console.log('\n[10] shouldAutoGreet 真值表');
+var NOW = 1700000000000;
+function st(over) {
+  var s = api._defaults();
+  s.autoGreet = true; s.autoIdleMin = 10; s.autoMax = 3;
+  for (var k in (over || {})) s[k] = over[k];
+  return s;
+}
+function cv(over) {
+  var c = { msgs: [{ role: 'user', content: 'x' }], updatedAt: NOW - 20 * 60000, autoStreak: 0 };
+  for (var k in (over || {})) c[k] = over[k];
+  return c;
+}
+function ui(over) {
+  var u = { view: 'chat', generating: false, visible: true, armedAt: 0 };
+  for (var k in (over || {})) u[k] = over[k];
+  return u;
+}
+
+eq('全部满足 -> true', api.shouldAutoGreet(NOW, cv(), st(), ui()), true);
+eq('开关关 -> false', api.shouldAutoGreet(NOW, cv(), st({ autoGreet: false }), ui()), false);
+eq('默认设置就是关的', api.shouldAutoGreet(NOW, cv(), api._defaults(), ui()), false);
+eq('不在聊天页 -> false', api.shouldAutoGreet(NOW, cv(), st(), ui({ view: 'home' })), false);
+eq('正在生成 -> false', api.shouldAutoGreet(NOW, cv(), st(), ui({ generating: true })), false);
+eq('App 在后台 -> false', api.shouldAutoGreet(NOW, cv(), st(), ui({ visible: false })), false);
+eq('还在冷却期 -> false', api.shouldAutoGreet(NOW, cv(), st(), ui({ armedAt: NOW + 1000 })), false);
+eq('静默时长不够 -> false',
+  api.shouldAutoGreet(NOW, cv({ updatedAt: NOW - 5 * 60000 }), st(), ui()), false);
+eq('刚好达到静默阈值 -> true',
+  api.shouldAutoGreet(NOW, cv({ updatedAt: NOW - 10 * 60000 }), st(), ui()), true);
+eq('连续数达上限 -> false', api.shouldAutoGreet(NOW, cv({ autoStreak: 3 }), st(), ui()), false);
+eq('上限内 -> true', api.shouldAutoGreet(NOW, cv({ autoStreak: 2 }), st(), ui()), true);
+eq('autoMax=0 -> false', api.shouldAutoGreet(NOW, cv(), st({ autoMax: 0 }), ui()), false);
+eq('autoIdleMin=0 -> false', api.shouldAutoGreet(NOW, cv(), st({ autoIdleMin: 0 }), ui()), false);
+eq('没有对话 -> false', api.shouldAutoGreet(NOW, null, st(), ui()), false);
+eq('空对话 -> false', api.shouldAutoGreet(NOW, cv({ msgs: [] }), st(), ui()), false);
+eq('刚建的空对话不触发（防开局自说自话）',
+  api.shouldAutoGreet(NOW, cv({ msgs: [], updatedAt: NOW - 99 * 60000 }), st(), ui()), false);
 
 console.log('\n' + '='.repeat(52));
 console.log('  结果: ' + pass + ' 项通过, ' + fail + ' 项失败');

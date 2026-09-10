@@ -72,17 +72,29 @@ input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
 .av{flex:0 0 auto;width:38px;height:38px;border-radius:10px;background:#23272f;color:#e8eaed;
   display:flex;align-items:center;justify-content:center;font-size:21px;line-height:1;overflow:hidden;}
 .row.me .av{background:#0b5c33;}
-.bub{max-width:72%;margin:0 9px;padding:9px 12px;border-radius:14px;font-size:15px;line-height:1.55;
+/* 一组气泡：一次回复可能连发多条，共用同一个头像 */
+.bubs{display:flex;flex-direction:column;align-items:flex-start;
+  max-width:72%;margin:0 9px;min-width:0;}
+.row.me .bubs{align-items:flex-end;}
+.bub{max-width:100%;margin:0;padding:9px 12px;border-radius:14px;font-size:15px;line-height:1.55;
   word-wrap:break-word;overflow-wrap:break-word;white-space:pre-wrap;position:relative;}
 .row.ai .bub{background:#262a33;border-top-left-radius:4px;}
 .row.me .bub{background:#07c160;color:#fff;border-top-right-radius:4px;}
-.bub.err{background:#3a2027;color:#ff9b9b;border-top-left-radius:4px;}
+/* 同一组里第 2 条起恢复完整圆角，只有首条带「小尖角」 */
+.row.ai .bubs .bub + .bub{border-top-left-radius:14px;}
+.row.me .bubs .bub + .bub{border-top-right-radius:14px;}
+/* 选择器必须压过 .row.ai .bub，否则红底永远不生效
+   （原版写成 .bub.err，优先级 2 个类 < 3 个类，被 .row.ai .bub 盖掉了） */
+.row.ai .bub.err{background:#3a2027;color:#ff9b9b;}
 .bub .meta{display:block;font-size:11px;color:#7c8492;margin-top:6px;}
 .row.me .bub .meta{color:rgba(255,255,255,.65);text-align:right;}
 
 /* 气泡里的配图 */
 .bub-img{display:block;max-width:100%;border-radius:10px;margin-top:7px;
   background:#1a1e26;min-height:50px;}
+/* 表情包：比配图小一圈 */
+.bub-sticker{display:block;max-width:130px;border-radius:10px;margin-top:7px;
+  background:#1a1e26;}
 .bub-img-ph{display:inline-block;font-size:12px;color:#8b93a1;background:#1a1e26;
   border-radius:8px;padding:7px 11px;margin-top:7px;line-height:1.5;}
 .bub-img-ph.err{color:#ff9b9b;}
@@ -282,7 +294,43 @@ input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
         <div class="fm-hint">留空则由服务方用默认尺寸。生成的图会压缩到最长边 640px 存到本机</div>
 
         <div style="height:14px;"></div>
+        <label class="sw">
+          <input type="checkbox" id="setSticker">
+          <span>允许角色发表情包</span>
+        </label>
+        <div class="fm-hint">
+          模型会输出 <code>[[STICKER: 描述]]</code>，App 用简笔画风格生成一张小图。<br>
+          每张表情包都要调一次生图接口。关掉则只能发文字和 emoji。
+        </div>
+
+        <div style="height:14px;"></div>
         <button class="btn blk" onclick="window.testImageApi()">测试生图</button>
+      </div>
+
+      <div class="fm-lb">聊天风格</div>
+      <label class="sw">
+        <input type="checkbox" id="setSplit">
+        <span>连发多条消息</span>
+      </label>
+      <div class="fm-hint">像真人发微信那样，把一次回复拆成几条短消息依次发出来。关掉则一次只回一条长的。</div>
+
+      <div class="fm-lb">主动问候</div>
+      <label class="sw">
+        <input type="checkbox" id="setAutoOn" onchange="window.onAutoToggle()">
+        <span>长时间不说话时主动找我</span>
+      </label>
+      <div class="fm-hint">
+        <b>会在你不操作时持续调用 API（产生费用），所以默认关闭。</b><br>
+        只在 App 开着、停在聊天页、且你确实没在操作时才会触发；
+        连续主动几条后会自动安静，等你回一句话才重新计数。
+      </div>
+
+      <div id="autoCfg" style="display:none;">
+        <div class="fm-lb">静默多久后主动开口（分钟）</div>
+        <input class="fm-ip" id="setAutoIdle" type="number" inputmode="numeric" placeholder="10">
+        <div class="fm-lb">最多连续主动几条</div>
+        <input class="fm-ip" id="setAutoMax" type="number" inputmode="numeric" placeholder="3">
+        <div class="fm-hint">达到上限后会一直保持安静，直到你回一句话才重新计数</div>
       </div>
 
       <div class="fm-lb">连接测试</div>
@@ -407,7 +455,9 @@ var UI = {
   editCharId: null,  // 正在编辑的角色（null=新建）
   editAvatar: '🙂',
   generating: false,
-  genSeq: 0
+  genSeq: 0,
+  visible: true,     // 页面是否在前台（主动问候必须先看这个）
+  armedAt: 0         // 进聊天页后的冷却截止时间，防止一进来就主动开口
 };
 var __confirmCb = null;   // {fn:'函数名', arg:参数} —— 不提前清空
 var EMOJIS = ['😀','🙂','😎','🤖','👧','👦','🧑','👩','🧙','🧛','👑','🐱',
@@ -475,7 +525,16 @@ function defaultSettings(){
     imgBase: '',
     imgKey: '',
     imgModel: 'cogview-3-flash',
-    imgSize: ''
+    imgSize: '',
+    stickerOn: true,        // 允许模型发表情包（每次都要调生图）
+
+    // 连发多条：模型用 ||| 分隔，App 切成多个气泡
+    msgSplit: true,
+
+    // 主动问候。默认关 —— 开着的话手机放着不动它会一直调 API 烧 token
+    autoGreet: false,
+    autoIdleMin: 10,        // 静默多久后主动开口
+    autoMax: 3              // 连续主动几条后闭嘴，直到用户回话
   };
 }
 
@@ -644,7 +703,11 @@ function go(v){
     var el = $('page-' + v);
     if (el) el.className = 'page active';
     if (v === 'home') renderCharList();
-    if (v === 'chat') renderChat(true);
+    if (v === 'chat'){
+      // 刚进聊天页给 30 秒冷却，别一坐下角色就自己开口
+      UI.armedAt = Date.now() + 30000;
+      renderChat(true);
+    }
     if (v === 'settings') fillSettings();
   }catch(e){ toast('切换页面出错'); }
 }
@@ -1059,47 +1122,80 @@ function openConvList(){
 /* 模型想发图时输出 [[IMG: 描述]]。content 里保留原文不剥离：
    导出的 JSON 还能重新解析，模型后续轮次也能看到自己发过图的模式。 */
 
+/* 模型发图的两种标记：[[IMG: 照片描述]] 和 [[STICKER: 表情包描述]] */
 var IMG_TAG = '[[IMG:';
+var STICKER_TAG = '[[STICKER:';
+var MARKER_TAGS = [IMG_TAG, STICKER_TAG];
+/* 描述里不允许出现 '|'：'|' 是连发多条的分隔符，让气泡切分保持权威。
+   代价是描述里真写了 '|' 时这条标记不生效、按原文显示（罕见且无害）。 */
+var MARKER_RE = /\[\[(IMG|STICKER):\s*([^\]\n|]+?)\s*\]\]/g;
 
-/* 找出尾部「像 [[IMG: 的开头但还没打完」的位置，没有则返回 -1。
-   流式输出是一个字一个字来的，所以 [[IMG 这种中间态必须也能兜住，
-   否则原始语法会在打字过程中闪一下。
+/* 找出尾部「像某个标记的开头但还没打完」的位置，没有则返回 -1。
+   流式输出是一个字一个字来的，[[IMG / [[STIC 这些中间态必须兜住，
+   否则原始语法会在打字过程中闪一下（这里翻过车）。
    从最长到最短匹配，只要 2 个字符以上（单个 '[' 更可能是正常文字）。 */
 function partialTagStart(s){
-  var max = Math.min(s.length, IMG_TAG.length);
-  for (var n = max; n >= 2; n--){
-    if (s.substring(s.length - n) === IMG_TAG.substring(0, n)) return s.length - n;
+  var best = -1, kind = 'img';
+  for (var t = 0; t < MARKER_TAGS.length; t++){
+    var tag = MARKER_TAGS[t];
+    var max = Math.min(s.length, tag.length);
+    for (var n = max; n >= 2; n--){
+      if (s.substring(s.length - n) === tag.substring(0, n)){
+        var at = s.length - n;
+        if (best < 0 || at < best){
+          best = at;
+          // 记住是哪个标记的前缀，占位文案才不会说错
+          // （'[[' 两个标记都匹配，这时保持默认 img）
+          kind = (t === 1) ? 'sticker' : 'img';
+        }
+        break;
+      }
+    }
   }
-  return -1;
+  return (best < 0) ? null : { at: best, kind: kind };
+}
+
+/* 找出 tail 里第一个「标记开头已写全但还没闭合」的位置 */
+function openTagStart(tail){
+  var best = -1, kind = 'img';
+  for (var i = 0; i < MARKER_TAGS.length; i++){
+    var at = tail.indexOf(MARKER_TAGS[i]);
+    if (at >= 0 && (best < 0 || at < best)){
+      best = at;
+      kind = (i === 1) ? 'sticker' : 'img';
+    }
+  }
+  return (best < 0) ? null : { at: best, kind: kind };
 }
 
 function splitImgMarkers(content){
   var out = [];
   content = String(content || '');
-  var re = /\[\[IMG:\s*([^\]\n]+?)\s*\]\]/g;
+  MARKER_RE.lastIndex = 0;
   var last = 0, m;
-  while ((m = re.exec(content)) !== null){
+  while ((m = MARKER_RE.exec(content)) !== null){
     if (m.index > last) out.push({ type: 'text', text: content.substring(last, m.index) });
-    out.push({ type: 'img', prompt: m[1] });
+    out.push({ type: 'img', kind: (m[1] === 'STICKER' ? 'sticker' : 'img'), prompt: m[2] });
     last = m.index + m[0].length;
   }
   var tail = content.substring(last);
 
-  // 情况一：已经写出了完整的 [[IMG: 但还没闭合。
-  // 这是流式中的常态（描述通常要好几个分片才传完），必须兜住，
-  // 否则 [IMG: 橘粉色的晚霞 这种半成品会以原始语法显示出来。
-  var open = tail.indexOf(IMG_TAG);
-  if (open >= 0){
-    if (open > 0) out.push({ type: 'text', text: tail.substring(0, open) });
-    out.push({ type: 'img', prompt: '', pending: true, raw: tail.substring(open) });
+  // 情况一：已经写出了完整的标记开头但还没闭合。
+  // 这是流式中的常态（描述通常要跨好几个分片），必须兜住。
+  var open = openTagStart(tail);
+  if (open){
+    if (open.at > 0) out.push({ type: 'text', text: tail.substring(0, open.at) });
+    out.push({ type: 'img', kind: open.kind, prompt: '', pending: true,
+               raw: tail.substring(open.at) });
     return out;
   }
 
-  // 情况二：只写出了标记的开头几个字符（[[IM 这种）
+  // 情况二：只写出了标记的开头几个字符（[[IM / [[STIC 这种）
   var part = partialTagStart(tail);
-  if (part >= 0){
-    if (part > 0) out.push({ type: 'text', text: tail.substring(0, part) });
-    out.push({ type: 'img', prompt: '', pending: true, raw: tail.substring(part) });
+  if (part){
+    if (part.at > 0) out.push({ type: 'text', text: tail.substring(0, part.at) });
+    out.push({ type: 'img', kind: part.kind, prompt: '', pending: true,
+               raw: tail.substring(part.at) });
     return out;
   }
 
@@ -1107,46 +1203,98 @@ function splitImgMarkers(content){
   return out;
 }
 
-function countImgMarkers(content){
-  var parts = splitImgMarkers(content), n = 0;
+/* 按出现顺序收集所有有效标记，附带类型 */
+function collectMarkers(content){
+  var parts = splitImgMarkers(content), out = [];
   for (var i = 0; i < parts.length; i++){
-    if (parts[i].type === 'img' && parts[i].prompt) n++;
+    if (parts[i].type === 'img' && parts[i].prompt){
+      out.push({ kind: parts[i].kind || 'img', prompt: parts[i].prompt });
+    }
   }
-  return n;
+  return out;
 }
 
+/* =========================================================================
+   连发多条：模型用 ||| 分隔多条消息，App 切成多个气泡
+   ========================================================================= */
+var SPLIT_SEP = '|||';
+
+function splitBubbles(content, streaming){
+  content = String(content || '');
+  var parts = content.split(SPLIT_SEP);
+
+  // 流式中结尾的 '|' 或 '||' 可能是分隔符打了一半，先藏起来；
+  // 流结束后不剥 —— 那时它是字面量。
+  if (streaming && parts.length){
+    var li = parts.length - 1;
+    parts[li] = parts[li].replace(/\|{1,2}$/, '');
+  }
+
+  // 分隔符切出来的空段不显示
+  var out = [];
+  for (var i = 0; i < parts.length; i++){
+    if (trim(parts[i]) !== '') out.push(parts[i]);
+    else if (parts.length === 1) out.push('');   // 整条为空，留一个空段给「正在输入」占位
+  }
+  return out;
+}
+
+/* 渲染一条消息的全部气泡，返回若干个 <div class="bub"> 拼好的 HTML。
+   一条消息可能被 ||| 拆成多个气泡，它们共用同一个头像。 */
 function renderBubbleBody(m, msgIdx){
+  var bubbles;
+  try{ bubbles = splitBubbles(m.content, !!m.streaming); }
+  catch(e){ bubbles = [m.content]; }
+
+  var cls = 'bub' + (m.error ? ' err' : '');
+  var cursor = { n: 0 };      // 图片序号在整条消息范围内连续
+  var h = '';
+
+  for (var i = 0; i < bubbles.length; i++){
+    var body;
+    if (m.streaming && trim(m.content) === ''){
+      body = '<span class="typing">正在输入</span>';
+    } else {
+      body = renderBubbleInner(m, msgIdx, bubbles[i], cursor);
+    }
+    h += '<div class="' + cls + '">' + body + '</div>';
+  }
+  return h;
+}
+
+function renderBubbleInner(m, msgIdx, text, cursor){
   var parts;
-  try{ parts = splitImgMarkers(m.content); }
-  catch(e){ return esc(m.content); }
+  try{ parts = splitImgMarkers(text); }
+  catch(e){ return esc(text); }
 
   var imgs = m.images || [];
-  var h = '', k = 0;
+  var h = '';
 
   for (var i = 0; i < parts.length; i++){
     var p = parts[i];
-    if (p.type === 'text'){
-      h += esc(p.text);
-      continue;
-    }
-    var im = imgs[k];
-    var idx = k;
-    k++;
+    if (p.type === 'text'){ h += esc(p.text); continue; }
+
+    var idx = cursor.n;
+    if (!p.pending) cursor.n++;      // 半截标记不占图片序号
+    var im = imgs[idx];
+    var waitTxt = (p.kind === 'sticker') ? '🖼 正在做表情包…' : '📷 正在生成图片…';
 
     if (im && im.data){
-      h += '<img class="bub-img" src="' + esc(im.data) + '" alt="' + esc(im.prompt || '配图') + '">';
+      var isSt = (im.kind === 'sticker');
+      h += '<img class="' + (isSt ? 'bub-sticker' : 'bub-img') + '" src="' + esc(im.data)
+         + '" alt="' + esc(im.prompt || '配图') + '">';
     } else if (im && im.error){
       h += '<span class="bub-img-ph err tap" onclick="window.retryImage(' + msgIdx + ',' + idx + ')">'
          + '配图失败：' + esc(shorten(im.error, 36)) + '（点击重试）</span>';
     } else if (im && im.evicted){
       h += '<span class="bub-img-ph">🖼 配图已清理（存储空间不足）</span>';
     } else if (p.pending){
-      // 流式中的半截标记显示占位；但流已经结束还没闭合，说明模型写错了，
+      // 流式中的半截标记显示占位；流已结束还没闭合说明模型写错了，
       // 当普通文字显示出来，别让它永远转圈
-      if (m.streaming) h += '<span class="bub-img-ph">📷 正在生成图片…</span>';
-      else h += esc(p.raw || '');
+      h += m.streaming ? '<span class="bub-img-ph">' + waitTxt + '</span>'
+                       : esc(p.raw || '');
     } else if (im){
-      h += '<span class="bub-img-ph">📷 正在生成图片…</span>';
+      h += '<span class="bub-img-ph">' + waitTxt + '</span>';
     } else {
       // 有描述但没生成（比如生图没配置）
       h += '<span class="bub-img-ph">🖼 ' + esc(shorten(p.prompt, 30)) + '</span>';
@@ -1178,16 +1326,11 @@ function renderChat(scrollBottom){
       var cls = isMe ? 'me' : 'ai';
       if (m.error) cls += ' err';
       var av = isMe ? '🙋' : avAi;
-      var body;
-      if (!isMe && m.content === '' && m.streaming){
-        body = '<span class="typing">正在输入</span>';
-      } else {
-        // 不能直接 esc(m.content)：里面可能含 [[IMG: ...]]，要渲染成图片
-        body = renderBubbleBody(m, i);
-      }
+      // 不能直接 esc(m.content)：里面可能有 ||| 分条，也可能有 [[IMG: ...]]
+      var body = renderBubbleBody(m, i);
       h += '<div class="row ' + cls + '">' +
              '<div class="av">' + esc(av) + '</div>' +
-             '<div class="bub">' + body + '</div>' +
+             '<div class="bubs">' + body + '</div>' +
            '</div>';
     }
     bd.innerHTML = h;
@@ -1204,16 +1347,13 @@ function updateLastBubble(){
     var rows = bd.querySelectorAll('.row');
     if (!rows.length) return;
     var last = rows[rows.length - 1];
-    var bub = last.querySelector('.bub');
-    if (!bub) return;
+    var bubs = last.querySelector('.bubs');
+    if (!bubs) return;
     var idx = conv.msgs.length - 1;
     var m = conv.msgs[idx];
-    if (m.streaming && m.content === ''){
-      bub.innerHTML = '<span class="typing">正在输入</span>';
-    } else {
-      // 必须用 innerHTML：textContent 会把已生成的配图抹掉
-      bub.innerHTML = renderBubbleBody(m, idx);
-    }
+    // 必须用 innerHTML：textContent 会把已生成的配图抹掉，
+    // 而且分条时气泡数量会随着流式增长而变化
+    bubs.innerHTML = renderBubbleBody(m, idx);
     // 接近底部才自动滚动，避免用户上翻看历史时被拽下来
     if (bd.scrollHeight - bd.scrollTop - bd.clientHeight < 140) scrollBottomNow();
   }catch(e){}
@@ -1328,7 +1468,7 @@ function normBase(b){
   return b;
 }
 
-function buildMessages(conv, c){
+function buildMessages(conv, c, nudge){
   var sys = '';
   if (c){
     sys += '你将扮演一个角色进行对话。\n\n角色名：' + c.name + '\n';
@@ -1340,11 +1480,24 @@ function buildMessages(conv, c){
            + '[[IMG: 用中文详细描述这张图片的画面]]\n'
            + '系统会自动把它变成一张真实的图片发给用户。'
            + '只在情境确实需要时才发（比如对方想看某样东西），不要每条消息都发。';
+      if (DB.settings.stickerOn){
+        sys += '\n\n你也可以发表情包（贴纸图）。想发时单独起一行写：\n'
+             + '[[STICKER: 描述表情包的内容和情绪]]\n'
+             + '会生成一张卡通表情图片。心情有起伏时偶尔发一个就好，不要连着发。';
+      }
     } else {
       // 没开图片功能时必须说清楚，否则角色会承诺发图却发不出来
       sys += '\n\n你只能发送纯文字消息。不要声称发送图片、照片、文件或链接，'
            + '也不要说你做了任何你做不到的事（比如发微信、发朋友圈、打电话）。'
-           + '需要提到照片、画面时，用语言把它描述出来即可。';
+           + '需要提到照片、画面时，用语言把它描述出来即可。'
+           + '你可以正常使用 emoji 表情符号。';
+    }
+
+    if (DB.settings.msgSplit){
+      sys += '\n\n聊天时请像真人发微信那样，把想说的话拆成 1~3 条短消息，'
+           + '每条之间用 ||| 分隔（单独一行写着三个竖线）。'
+           + '每条尽量简短口语化，不要写成一大段。'
+           + '注意：||| 只用来分条，不要用在句子里其他地方。';
     }
   } else {
     sys = '你是一个友好的中文对话助手。';
@@ -1359,6 +1512,8 @@ function buildMessages(conv, c){
     if (m.role !== 'user' && m.role !== 'assistant') continue;
     out.push({ role: m.role, content: m.content });
   }
+  // 一次性指令（比如主动问候的提示），只发给接口，不存进对话历史
+  if (nudge) out.push({ role: 'system', content: nudge });
   return out;
 }
 
@@ -1419,12 +1574,12 @@ function extractNonStream(jsonText){
 }
 
 /* 发起一次对话补全 */
-function callAPI(conv, c, handlers){
+function callAPI(conv, c, handlers, nudge){
   var base = normBase(DB.settings.apiBase);
   var key = trim(DB.settings.apiKey);
   var model = trim(DB.settings.model) || 'deepseek-chat';
   var url = base + '/chat/completions';
-  var msgs = buildMessages(conv, c);
+  var msgs = buildMessages(conv, c, nudge);
   var temp = Number(DB.settings.temperature);
   if (isNaN(temp)) temp = 1.0;
 
@@ -1593,10 +1748,15 @@ function compressToDataURL(src, maxSide, cb){
   }catch(e){ cb(null, e.message || String(e)); }
 }
 
-function generateImage(prompt, cb){
+/* 表情包用固定画风，避免生成出来像照片 */
+var STICKER_STYLE = '表情包贴纸风格：简笔画卡通，纯白背景，粗黑线条，'
+  + '夸张搞笑的表情，主体居中，构图简洁。画面内容：';
+
+function generateImage(prompt, kind, cb){
   var s = DB.settings;
   var url = normBase(s.imgBase) + '/images/generations';
-  var payload = { model: trim(s.imgModel), prompt: prompt, n: 1 };
+  var full = (kind === 'sticker') ? (STICKER_STYLE + prompt) : prompt;
+  var payload = { model: trim(s.imgModel), prompt: full, n: 1 };
   // 优先要 base64：既能绕过跨域，又不会像 URL 那样过期
   payload.response_format = 'b64_json';
   if (trim(s.imgSize)) payload.size = trim(s.imgSize);
@@ -1662,25 +1822,32 @@ function finishImage(im, src, done){
     done();
   }
   if (String(src).indexOf('data:') !== 0){ store(src); return; }
-  compressToDataURL(src, 640, function(out, err){
+  // 表情包不需要大图，压得更狠，省存储
+  var maxSide = (im.kind === 'sticker') ? 320 : 640;
+  compressToDataURL(src, maxSide, function(out, err){
     store(out || src);      // 压缩失败也别丢图，靠预算机制兜底
   });
 }
 
-/* 流式结束后调用：把 content 里的 [[IMG: ...]] 变成真图片 */
+/* 流式结束后调用：把 content 里的 [[IMG: ...]] / [[STICKER: ...]] 变成真图片。
+   注意 msg.images 必须和标记一一对应（哪怕某些不生成），
+   否则 renderBubbleInner 按下标取图会错位。 */
 function attachImages(conv, msg){
   try{
-    var need = countImgMarkers(msg.content);
-    if (need === 0) return;
+    var marks = collectMarkers(msg.content);
+    if (!marks.length) return;
 
-    if (!msg.images || msg.images.length !== need){
+    if (!msg.images || msg.images.length !== marks.length){
       msg.images = [];
-      var parts = splitImgMarkers(msg.content);
-      for (var i = 0; i < parts.length; i++){
-        if (parts[i].type === 'img' && parts[i].prompt){
-          msg.images.push({ prompt: parts[i].prompt, data: null, error: null,
-                            evicted: false, ts: Date.now() });
-        }
+      for (var i = 0; i < marks.length; i++){
+        msg.images.push({
+          kind: marks[i].kind,
+          prompt: marks[i].prompt,
+          data: null, error: null, evicted: false,
+          // 表情包关掉了就不生成，但保留占位以维持下标对齐
+          skipped: (marks[i].kind === 'sticker' && !DB.settings.stickerOn),
+          ts: Date.now()
+        });
       }
     }
 
@@ -1693,8 +1860,9 @@ function attachImages(conv, msg){
 
     for (var k = 0; k < msg.images.length; k++){
       (function(im){
+        if (im.skipped) return;
         im.error = null;
-        generateImage(im.prompt, function(src, err){
+        generateImage(im.prompt, im.kind, function(src, err){
           if (err){
             im.error = err;
             renderChat(true);
@@ -1724,7 +1892,7 @@ function retryImage(msgIdx, imgIdx){
     renderChat(false);
     toast('重新生成中…');
 
-    generateImage(im.prompt, function(src, err){
+    generateImage(im.prompt, im.kind, function(src, err){
       if (err){
         im.error = err;
         renderChat(false);
@@ -1753,13 +1921,14 @@ function sendMsg(){
 
     conv.msgs.push({ role: 'user', content: text, ts: Date.now() });
     conv.updatedAt = Date.now();
+    conv.autoStreak = 0;     // 用户回话了，主动问候的连续计数清零
     saveDB();
     renderChat(true);
     genReply(conv, c);
   }catch(e){ toast('发送失败：' + e.message); }
 }
 
-function genReply(conv, c){
+function genReply(conv, c, nudge){
   conv.msgs.push({ role: 'assistant', content: '', ts: Date.now(), streaming: true });
   var aiMsg = conv.msgs[conv.msgs.length - 1];
   renderChat(true);
@@ -1815,7 +1984,7 @@ function genReply(conv, c){
       renderChat(true);
       toast(msg);
     }
-  });
+  }, nudge);
 }
 
 function stopGen(){
@@ -1846,6 +2015,45 @@ function setBusy(b){
   }catch(e){}
 }
 
+/* =========================================================================
+   主动问候
+   —— 判定抽成纯函数，所有输入显式传入，能在 node 里完整测真值表。
+      实际运行时由 autoTick 每 30 秒检查一次。
+      四重刹车：默认关 + 仅前台 + 连续上限 + 空闲阈值。
+   ========================================================================= */
+
+var AUTO_NUDGE =
+  '请你以角色的身份主动发一条消息给他。可以是问候、分享一件小事、'
+  + '或者接着刚才的话题往下说。自然一点，绝对不要提到「你很久没说话了」'
+  + '「你还在吗」这类话，就当是随口开的头。';
+
+function shouldAutoGreet(now, conv, st, ui){
+  if (!st || !st.autoGreet) return false;
+  if (!conv || !conv.msgs || !conv.msgs.length) return false;
+  if (!ui || ui.view !== 'chat') return false;
+  if (ui.generating) return false;
+  if (!ui.visible) return false;                      // 后台绝不烧 token
+  if (ui.armedAt && now < ui.armedAt) return false;   // 刚进聊天页的冷却期
+  var max = Number(st.autoMax);
+  if (isNaN(max) || max <= 0) return false;
+  if ((conv.autoStreak || 0) >= max) return false;    // 连续主动够了，闭嘴等用户回话
+  var idleMin = Number(st.autoIdleMin);
+  if (isNaN(idleMin) || idleMin <= 0) return false;
+  if (now - (conv.updatedAt || 0) < idleMin * 60000) return false;
+  return true;
+}
+
+function autoTick(){
+  try{
+    UI.visible = !document.hidden;
+    var conv = getConv(UI.convId);
+    if (!shouldAutoGreet(Date.now(), conv, DB.settings, UI)) return;
+    conv.autoStreak = (conv.autoStreak || 0) + 1;
+    saveDB();
+    genReply(conv, getChar(conv.charId || UI.charId), AUTO_NUDGE);
+  }catch(e){ /* 主动问候失败不能影响正常聊天 */ }
+}
+
 function autoGrow(ta){
   try{
     ta.style.height = 'auto';
@@ -1871,7 +2079,14 @@ function fillSettings(){
     $('setImgKey').value = s.imgKey || '';
     $('setImgModel').value = s.imgModel || '';
     $('setImgSize').value = s.imgSize || '';
+    $('setSticker').checked = !!s.stickerOn;
     onImgToggle();
+
+    $('setSplit').checked = !!s.msgSplit;
+    $('setAutoOn').checked = !!s.autoGreet;
+    $('setAutoIdle').value = s.autoIdleMin;
+    $('setAutoMax').value = s.autoMax;
+    onAutoToggle();
   }catch(e){ toast('读取设置失败'); }
 }
 
@@ -1887,6 +2102,12 @@ function onImgToggle(){
   }catch(e){}
 }
 
+function onAutoToggle(){
+  try{
+    $('autoCfg').style.display = $('setAutoOn').checked ? 'block' : 'none';
+  }catch(e){}
+}
+
 /* 把图片配置从表单读进 DB.settings（不落盘，由调用方决定） */
 function readImgForm(){
   var s = DB.settings;
@@ -1895,6 +2116,7 @@ function readImgForm(){
   s.imgKey = trim($('setImgKey').value);
   s.imgModel = trim($('setImgModel').value) || 'cogview-3-flash';
   s.imgSize = trim($('setImgSize').value);
+  s.stickerOn = !!$('setSticker').checked;
 }
 
 function testImageApi(){
@@ -1906,7 +2128,7 @@ function testImageApi(){
       return;
     }
     toast('正在生成测试图…');
-    generateImage('一只橘色的猫坐在窗台上，午后阳光', function(src, err){
+    generateImage('一只橘色的猫坐在窗台上，午后阳光', 'img', function(src, err){
       if (err){ toast('❌ ' + shorten(err, 55)); return; }
       compressToDataURL(src, 640, function(out){
         var d = out || src;
@@ -1926,10 +2148,19 @@ function saveSettings(){
     var t = Number($('setTemp').value);
     DB.settings.temperature = isNaN(t) ? 1.0 : t;
 
+    DB.settings.msgSplit = !!$('setSplit').checked;
+    DB.settings.autoGreet = !!$('setAutoOn').checked;
+    var ai = Number($('setAutoIdle').value);
+    DB.settings.autoIdleMin = (isNaN(ai) || ai < 1) ? 10 : Math.min(600, Math.round(ai));
+    var am = Number($('setAutoMax').value);
+    DB.settings.autoMax = (isNaN(am) || am < 1) ? 3 : Math.min(20, Math.round(am));
+
     readImgForm();
     var warn = '';
     if (DB.settings.imgEnabled && !imgReady()){
       warn = '（图片功能已开，但生图接口还没配全）';
+    } else if (DB.settings.autoGreet){
+      warn = '（主动问候已开，会在你不动手机时调用 API）';
     }
 
     if (saveDB()){ toast('设置已保存' + warn); go('home'); }
@@ -2095,6 +2326,16 @@ function boot(){
     // 恢复上次的温度显示
     onTempChange();
 
+    // 主动问候：跟踪前台状态 + 每 30 秒检查一次
+    // （document.hidden 在 App 切到后台时为 true，autoTick 里会直接返回）
+    try{
+      UI.visible = !document.hidden;
+      document.addEventListener('visibilitychange', function(){
+        UI.visible = !document.hidden;
+      }, false);
+      setInterval(autoTick, 30000);
+    }catch(e){}
+
     // 首屏提示
     setTimeout(function(){
       if (!trim(DB.settings.apiKey)) toast('提示：先在「设置」里填 API Key');
@@ -2140,9 +2381,11 @@ window.fillSettings = fillSettings;
 window.saveSettings = saveSettings;
 window.onTempChange = onTempChange;
 window.onImgToggle = onImgToggle;
+window.onAutoToggle = onAutoToggle;
 window.testApi = testApi;
 window.testImageApi = testImageApi;
 window.retryImage = retryImage;
+window.autoTick = autoTick;
 
 window.exportConv = exportConv;
 window.exportAll = exportAll;

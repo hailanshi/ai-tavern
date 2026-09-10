@@ -155,6 +155,38 @@ need(/retryImage/, '配图失败重试');
 need(/你只能发送纯文字消息/, '图片关闭时的「不许承诺发图」提示');
 need(/你可以给用户发图片/, '图片开启时的发图指令');
 
+// --- 连发多条 ---
+need(/splitBubbles/, 'splitBubbles 分条');
+need(/SPLIT_SEP/, '||| 分隔符常量');
+need(/\.bubs\{/, '.bubs 气泡组容器（CSS）', html);
+need(/\.row\.ai \.bub\.err/, '错误气泡样式（选择器要压过 .row.ai .bub）', html);
+need(/\.bub-sticker\{/, '表情包小图样式（CSS）', html);
+
+// --- 主动问候 ---
+need(/shouldAutoGreet/, 'shouldAutoGreet 纯判定函数');
+need(/autoTick/, 'autoTick 定时检查');
+need(/setInterval\(autoTick/, '主动问候定时器');
+need(/visibilitychange/, '前台状态监听');
+need(/AUTO_NUDGE/, '主动问候的 nudge 提示词');
+need(/autoStreak/, '连续主动计数');
+
+// --- 表情包 ---
+need(/STICKER_TAG/, 'STICKER 标记');
+need(/STICKER_STYLE/, '表情包画风前缀');
+need(/collectMarkers/, '标记按序收集');
+
+// 重命名后不能残留旧引用
+if (/\bcountImgMarkers\b/.test(stripped)) bad('还残留 countImgMarkers 引用（已改名 collectMarkers）');
+else ok('无残留的 countImgMarkers 引用');
+
+// 主动问候必须默认关闭，否则用户装上去就会被偷偷扣费
+if (/autoGreet:\s*false/.test(js)) ok('主动问候默认关闭');
+else bad('主动问候不是默认关闭的 —— 会在用户不知情时调 API');
+
+// 分条开关必须默认开启（用户主动要求的功能）
+if (/msgSplit:\s*true/.test(js)) ok('连发多条默认开启');
+else wrn('连发多条不是默认开启的');
+
 // 图片不能出现在导出数据里（几 MB 文本会让 textarea 卡死）
 if (/images:\s*\(m\.images \|\| \[\]\)\.map\(function\(im\)\{\s*return im;\s*\}\)/.test(js)) {
   bad('导出时包含了图片 base64 数据');
