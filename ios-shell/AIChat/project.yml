@@ -1,0 +1,87 @@
+# xcodegen 工程描述
+# 用 `xcodegen generate` 生成 AIChat.xcodeproj
+#
+# 为什么不把 .xcodeproj 提交进仓库：
+#   手写的 pbxproj 格式版本很容易和云端 Xcode 对不上
+#   （典型报错：future Xcode project file format (77)）
+#
+# ⚠️ 注意：所有 YES/NO 必须加引号写成 "NO" / "YES"。
+#   不加引号的话 YAML 1.1 会把它们解析成布尔 true/false，
+#   xcodegen 就会往 pbxproj 里写 `CODE_SIGNING_REQUIRED = false`，
+#   而 Xcode 自己写的是 `= NO`，非标准写法可能导致设置不生效。
+
+name: AIChat
+
+options:
+  bundleIdPrefix: com.aichat
+  deploymentTarget:
+    iOS: "12.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    ARCHS: "arm64"
+    ONLY_ACTIVE_ARCH: "NO"
+    CLANG_ENABLE_OBJC_ARC: "YES"
+    CLANG_ENABLE_MODULES: "YES"
+    ENABLE_STRICT_OBJC_MSGSEND: "YES"
+    # 关掉几个用不上的检查，减少云端编译噪音
+    GCC_WARN_UNDECLARED_SELECTOR: "NO"
+    CLANG_WARN_DOCUMENTATION_COMMENTS: "NO"
+
+targets:
+  AIChat:
+    type: application
+    platform: iOS
+    deploymentTarget: "12.0"
+
+    sources:
+      - path: main.m
+      - path: AppDelegate.h
+      - path: AppDelegate.m
+      - path: ViewController.h
+      - path: ViewController.m
+      # Resources 整个目录进 Copy Bundle Resources
+      # （index.html 和两个图标；Info.plist 不在这里，它由 INFOPLIST_FILE 指定）
+      - path: Resources
+        buildPhase: resources
+
+    settings:
+      base:
+        PRODUCT_NAME: AIChat
+        PRODUCT_BUNDLE_IDENTIFIER: com.aichat.trollstore
+        INFOPLIST_FILE: Info.plist
+        # Info.plist 由我们手写，禁止 Xcode 自动生成/合并，否则键会被覆盖
+        GENERATE_INFOPLIST_FILE: "NO"
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # TrollStore 只装 arm64
+        ARCHS: "arm64"
+        ONLY_ACTIVE_ARCH: "NO"
+        # bitcode 从 Xcode 14 起已移除
+        ENABLE_BITCODE: "NO"
+        # 没有资源目录，明确留空避免 xcodebuild 去找 AppIcon
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        # 云端不做真签名（无证书），打包后手动 codesign --sign - 做 ad-hoc 伪签名
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGN_ENTITLEMENTS: ""
+
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: WebKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreGraphics.framework
+
+schemes:
+  AIChat:
+    build:
+      targets:
+        AIChat: all
+    run:
+      config: Release
+    archive:
+      config: Release

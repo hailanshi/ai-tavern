@@ -1,0 +1,208 @@
+name: Build IPA
+
+# 推送到 main/master 自动编译，也可以在 Actions 页面手动触发
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_NAME: AIChat
+  SCHEME: AIChat
+
+jobs:
+  build:
+    # 必须 macos-15（Xcode 16）。
+    # macos-14 带的是 Xcode 15.4，读不了新格式工程，会报
+    # "future Xcode project file format (77)"。
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 查看工具链版本
+        run: |
+          xcodebuild -version
+          echo "--- iOS SDK ---"
+          xcrun --sdk iphoneos --show-sdk-version
+          echo "--- 架构 ---"
+          uname -m
+
+      - name: 安装 xcodegen
+        run: brew install xcodegen
+
+      # app.html 是唯一业务源文件，打包前同步成 Resources/index.html
+      - name: 同步单文件 HTML
+        run: |
+          set -e
+          test -f app.html || { echo "::error::app.html 不存在"; exit 1; }
+          mkdir -p ios-shell/AIChat/Resources
+          cp app.html ios-shell/AIChat/Resources/index.html
+          ls -l ios-shell/AIChat/Resources/
+
+      - name: 生成 Xcode 工程
+        working-directory: ios-shell/AIChat
+        run: |
+          set -e
+          xcodegen generate --spec project.yml
+          echo "--- 工程目录 ---"
+          ls -la
+          echo "--- Resources ---"
+          ls -la Resources/
+
+      # ------------------------------------------------------------------
+      # 关键：用真实退出码判断编译是否成功。
+      # 如果不看退出码，xcodebuild 失败时后面的步骤照样跑，
+      # 最后会产出一个「没有主程序的空壳 .ipa」，装上去必闪退。
+      # ------------------------------------------------------------------
+      - name: 编译（xcodebuild）
+        working-directory: ios-shell/AIChat
+        run: |
+          set +e
+
+          xcodebuild \
+            -project "${SCHEME}.xcodeproj" \
+            -scheme "${SCHEME}" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -sdk iphoneos \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build.log
+
+          STATUS=${PIPESTATUS[0]}
+          echo "xcodebuild 退出码 = $STATUS"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::xcodebuild 失败，退出码 $STATUS"
+            echo "---------- build.log 末尾 40 行 ----------"
+            tail -40 build.log
+            exit 1
+          fi
+
+          # 顺带确认没出现 error: 字样（防止 xcodebuild 误报成功）
+          if grep -q "^error:" build.log; then
+            echo "::error::build.log 里存在 error: 行"
+            grep -n "^error:" build.log | head -20
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------
+      # 校验产物：主程序必须存在且是 arm64 Mach-O
+      # ------------------------------------------------------------------
+      - name: 校验 .app（防空壳包）
+        working-directory: ios-shell/AIChat
+        run: |
+          set -e
+          APP="build/Build/Products/Release-iphoneos/${APP_NAME}.app"
+
+          test -d "$APP" || { echo "::error::找不到 $APP"; exit 1; }
+          test -f "$APP/${APP_NAME}" || {
+            echo "::error::主程序 $APP_NAME 缺失 —— 这是空壳包，装上必闪退"
+            ls -la "$APP" || true
+            exit 1
+          }
+
+          echo "--- 主程序 ---"
+          ls -l "$APP/${APP_NAME}"
+          file "$APP/${APP_NAME}"
+          lipo -info "$APP/${APP_NAME}" || true
+
+          echo "--- 加密信息（TrollStore 要求 cryptid=0）---"
+          otool -l "$APP/${APP_NAME}" | grep -A5 LC_ENCRYPTION_INFO || true
+
+          echo "--- Info.plist 关键键 ---"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :MinimumOSVersion" "$APP/Info.plist"
+
+      # ------------------------------------------------------------------
+      # 打包 ipa
+      # 铁律：index.html 和图标要手动拷进 .app，再重新做 ad-hoc 签名。
+      # 顺序不能反——签完名再改包内容会让签名失效。
+      # ------------------------------------------------------------------
+      - name: 打包 IPA
+        working-directory: ios-shell/AIChat
+        run: |
+          set -e
+          APP="build/Build/Products/Release-iphoneos/${APP_NAME}.app"
+
+          cp Resources/index.html "$APP/index.html"
+          mkdir -p "$APP/www"
+          cp Resources/index.html "$APP/www/index.html"
+          cp Resources/AppIcon60x60@2x.png "$APP/"
+          cp Resources/AppIcon60x60@3x.png "$APP/"
+
+          echo "--- 签名前 .app 内容 ---"
+          ls -la "$APP"
+
+          codesign --force --sign - --timestamp=none "$APP"
+          echo "--- 签名信息 ---"
+          codesign -dv "$APP" 2>&1 || true
+          codesign --verify --verbose "$APP" 2>&1 || true
+
+          rm -rf _payload
+          mkdir -p _payload/Payload
+          cp -R "$APP" _payload/Payload/
+
+          # 必须 cd 进 _payload 再压，保证压缩包里第一层就是 Payload/
+          cd _payload
+          zip -qry "${GITHUB_WORKSPACE}/${APP_NAME}.ipa" Payload
+          cd "$GITHUB_WORKSPACE"
+
+          ls -lh "${APP_NAME}.ipa"
+
+      - name: 校验 IPA 内容
+        run: |
+          set -e
+          echo "--- IPA 目录结构 ---"
+          unzip -l "${APP_NAME}.ipa" | head -30
+
+          echo "--- 必需文件检查 ---"
+          unzip -l "${APP_NAME}.ipa" | grep -q "Payload/${APP_NAME}.app/${APP_NAME}$" \
+            || { echo "::error::IPA 里没有主程序"; exit 1; }
+          unzip -l "${APP_NAME}.ipa" | grep -q "Payload/${APP_NAME}.app/index.html" \
+            || { echo "::error::IPA 里没有 index.html"; exit 1; }
+          unzip -l "${APP_NAME}.ipa" | grep -q "Payload/${APP_NAME}.app/www/index.html" \
+            || { echo "::error::IPA 里没有 www/index.html"; exit 1; }
+          unzip -l "${APP_NAME}.ipa" | grep -q "AppIcon60x60@2x.png" \
+            || { echo "::error::缺 2x 图标"; exit 1; }
+          unzip -l "${APP_NAME}.ipa" | grep -q "AppIcon60x60@3x.png" \
+            || { echo "::error::缺 3x 图标"; exit 1; }
+
+          echo "✅ 全部必需文件就位"
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-ipa
+          # 这个路径必须和上面 zip 的输出路径一致，否则报「找不到文件」
+          path: ${{ env.APP_NAME }}.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      # ------------------------------------------------------------------
+      # 失败时把编译日志暴露出来，方便排查
+      # ------------------------------------------------------------------
+      - name: 打印编译日志（失败时）
+        if: failure()
+        working-directory: ios-shell/AIChat
+        continue-on-error: true
+        run: |
+          echo "===== build.log 末尾 60 行 ====="
+          tail -60 build.log 2>/dev/null || echo "(没有 build.log，失败发生在编译之前)"
+
+      - name: 上传编译日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ios-shell/AIChat/build.log
+          if-no-files-found: ignore
+          retention-days: 14

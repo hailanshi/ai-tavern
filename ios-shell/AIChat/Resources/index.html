@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI酒馆">
+<meta name="format-detection" content="telephone=no,email=no,address=no">
+<title>AI 酒馆</title>
+<style>
+/* ============ 基础 ============ */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{
+  margin:0;padding:0;height:100%;width:100%;
+  background:#0e1013;color:#e8eaed;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",Arial,sans-serif;
+  font-size:16px;line-height:1.5;
+  touch-action:manipulation;
+  -webkit-text-size-adjust:100%;
+  -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+input,textarea,button,select{font-family:inherit;color:inherit;}
+input,textarea{font-size:16px;}  /* 防止 iOS 聚焦自动放大 */
+::-webkit-scrollbar{width:0;height:0;}
+
+/* ============ 页面骨架 ============ */
+.page{position:fixed;top:0;left:0;right:0;bottom:0;display:none;flex-direction:column;background:#0e1013;}
+.page.active{display:flex;}
+
+/* ============ 顶栏（安全区） ============ */
+.hd{flex:0 0 auto;background:#171a21;border-bottom:1px solid #23272f;padding-top:env(safe-area-inset-top);}
+.hd-in{height:48px;display:flex;align-items:center;padding:0 6px;}
+.hd-t{flex:1 1 auto;text-align:center;font-size:17px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 4px;}
+.hd-btn{flex:0 0 auto;min-width:44px;height:44px;border:0;background:transparent;color:#e8eaed;font-size:15px;padding:0 8px;cursor:pointer;}
+.hd-btn:active{opacity:.5;}
+.hd-btn.acc{color:#07c160;font-weight:600;}
+
+/* ============ 内容滚动区 ============ */
+.bd{flex:1 1 auto;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;position:relative;}
+
+/* ============ 底栏（安全区） ============ */
+.ft{flex:0 0 auto;background:#171a21;border-top:1px solid #23272f;padding-bottom:env(safe-area-inset-bottom);}
+
+/* ============ 通用按钮 ============ */
+.btn{display:inline-block;border:0;border-radius:10px;background:#262a33;color:#e8eaed;
+  padding:10px 16px;font-size:15px;cursor:pointer;text-align:center;}
+.btn:active{opacity:.6;}
+.btn.pri{background:#07c160;color:#fff;font-weight:600;}
+.btn.dgr{background:#3a2027;color:#ff6b6b;}
+.btn.blk{display:block;width:100%;}
+
+/* ============ 角色列表 ============ */
+.sec-t{font-size:13px;color:#8b93a1;padding:16px 16px 8px;letter-spacing:.5px;}
+.card{display:flex;align-items:center;background:#171a21;border-radius:12px;margin:0 12px 10px;padding:12px;
+  cursor:pointer;border:1px solid #21252d;}
+.card:active{background:#1d2129;}
+.card-av{flex:0 0 auto;width:48px;height:48px;border-radius:12px;background:#23272f;
+  display:flex;align-items:center;justify-content:center;font-size:26px;line-height:1;overflow:hidden;}
+.card-mn{flex:1 1 auto;min-width:0;padding:0 12px;}
+.card-nm{font-size:16px;font-weight:600;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.card-ds{font-size:12px;color:#8b93a1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.card-ops{flex:0 0 auto;display:flex;}
+.iop{width:36px;height:36px;border:0;background:transparent;color:#8b93a1;font-size:17px;cursor:pointer;border-radius:8px;}
+.iop:active{background:#23272f;}
+
+/* ============ 聊天气泡（微信风） ============ */
+#chatBody{padding:10px 0 16px;}
+.row{display:flex;align-items:flex-start;margin:12px 12px;padding:0;}
+.row.me{flex-direction:row-reverse;}
+.av{flex:0 0 auto;width:38px;height:38px;border-radius:10px;background:#23272f;color:#e8eaed;
+  display:flex;align-items:center;justify-content:center;font-size:21px;line-height:1;overflow:hidden;}
+.row.me .av{background:#0b5c33;}
+.bub{max-width:72%;margin:0 9px;padding:9px 12px;border-radius:14px;font-size:15px;line-height:1.55;
+  word-wrap:break-word;overflow-wrap:break-word;white-space:pre-wrap;position:relative;}
+.row.ai .bub{background:#262a33;border-top-left-radius:4px;}
+.row.me .bub{background:#07c160;color:#fff;border-top-right-radius:4px;}
+.bub.err{background:#3a2027;color:#ff9b9b;border-top-left-radius:4px;}
+.bub .meta{display:block;font-size:11px;color:#7c8492;margin-top:6px;}
+.row.me .bub .meta{color:rgba(255,255,255,.65);text-align:right;}
+.typing{display:inline-block;color:#8b93a1;}
+.typing:after{content:'...';animation:blink 1.1s steps(4,end) infinite;}
+@keyframes blink{0%{opacity:.25}50%{opacity:1}100%{opacity:.25}}
+.empty{text-align:center;color:#6b7280;font-size:14px;padding:60px 30px;line-height:1.9;}
+
+/* ============ 聊天输入栏 ============ */
+.in-w{display:flex;align-items:flex-end;padding:8px 10px;}
+#msgInput{flex:1 1 auto;background:#23272f;border:1px solid #2c313b;border-radius:18px;color:#e8eaed;
+  padding:9px 14px;font-size:16px;line-height:1.4;resize:none;max-height:110px;min-height:38px;
+  outline:none;overflow-y:auto;-webkit-appearance:none;}
+#msgInput:focus{border-color:#07c160;}
+.in-send{flex:0 0 auto;margin-left:8px;border:0;border-radius:18px;background:#07c160;color:#fff;
+  font-size:15px;font-weight:600;padding:9px 16px;height:38px;cursor:pointer;}
+.in-send:disabled{background:#2c313b;color:#6b7280;}
+.in-send:active{opacity:.7;}
+.in-stop{flex:0 0 auto;margin-left:8px;border:0;border-radius:18px;background:#3a2027;color:#ff6b6b;
+  font-size:15px;font-weight:600;padding:9px 16px;height:38px;cursor:pointer;display:none;}
+
+/* ============ 设置表单 ============ */
+.fm{padding:6px 16px 24px;}
+.fm-lb{font-size:13px;color:#8b93a1;margin:16px 0 6px;}
+.fm-ip{width:100%;background:#171a21;border:1px solid #2c313b;border-radius:10px;color:#e8eaed;
+  padding:11px 12px;font-size:16px;outline:none;-webkit-appearance:none;}
+.fm-ip:focus{border-color:#07c160;}
+.fm-tx{width:100%;background:#171a21;border:1px solid #2c313b;border-radius:10px;color:#e8eaed;
+  padding:11px 12px;font-size:16px;outline:none;resize:vertical;min-height:90px;line-height:1.5;
+  -webkit-appearance:none;}
+.fm-tx:focus{border-color:#07c160;}
+.fm-hint{font-size:12px;color:#6b7280;margin-top:6px;line-height:1.6;}
+.rng-w{display:flex;align-items:center;}
+.rng-w input[type=range]{flex:1 1 auto;-webkit-appearance:none;height:4px;border-radius:2px;background:#2c313b;outline:none;}
+.rng-w input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:#07c160;cursor:pointer;}
+.rng-v{flex:0 0 auto;width:48px;text-align:right;font-size:15px;color:#07c160;font-weight:600;}
+
+/* ============ 弹窗（不用 inset） ============ */
+.mask{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.65);
+  display:none;z-index:800;padding:20px;}
+.mask.show{display:flex;align-items:center;justify-content:center;}
+.dlg{width:100%;max-width:340px;max-height:82%;background:#1b1f27;border-radius:14px;
+  display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.6);}
+.dlg-hd{flex:0 0 auto;padding:15px 16px;font-size:16px;font-weight:600;text-align:center;
+  border-bottom:1px solid #2a2f3a;}
+.dlg-bd{flex:1 1 auto;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 16px;}
+.dlg-ft{flex:0 0 auto;display:flex;border-top:1px solid #2a2f3a;}
+.dlg-ft .btn{flex:1 1 0;border-radius:0;background:transparent;padding:14px 8px;font-size:16px;}
+.dlg-ft .btn + .btn{border-left:1px solid #2a2f3a;}
+.dlg-ft .btn.pri{color:#07c160;font-weight:600;background:transparent;}
+.dlg-ft .btn.dgr{color:#ff6b6b;background:transparent;}
+.dlg-txt{font-size:15px;line-height:1.7;color:#c8cdd6;text-align:center;padding:6px 0;}
+
+/* emoji 选择网格 */
+.emo-g{display:flex;flex-wrap:wrap;margin:0 -4px;}
+.emo-i{width:14.28%;padding:4px;}
+.emo-i button{width:100%;aspect-ratio:1/1;min-height:40px;border:1px solid #2c313b;border-radius:10px;
+  background:#23272f;font-size:22px;line-height:1;cursor:pointer;padding:0;}
+.emo-i button.on{border-color:#07c160;background:#0b3d25;}
+.emo-i button:active{opacity:.6;}
+
+/* 对话列表项 */
+.conv-i{display:flex;align-items:center;padding:12px 4px;border-bottom:1px solid #252a33;cursor:pointer;}
+.conv-i:last-child{border-bottom:0;}
+.conv-i:active{opacity:.6;}
+.conv-mn{flex:1 1 auto;min-width:0;}
+.conv-nm{font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.conv-dt{font-size:12px;color:#8b93a1;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Toast */
+#toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);
+  background:rgba(20,22,28,.96);color:#fff;border:1px solid #333a46;
+  padding:11px 20px;border-radius:22px;font-size:14px;z-index:900;max-width:82%;
+  text-align:center;opacity:0;transition:opacity .22s;pointer-events:none;line-height:1.5;}
+#toast.show{opacity:1;}
+
+/* 分隔提示 */
+.tip{text-align:center;font-size:12px;color:#6b7280;margin:14px 20px;}
+.tip span{background:#1a1e26;padding:4px 12px;border-radius:10px;}
+</style>
+</head>
+<body>
+
+<!-- ==================== 角色列表页 ==================== -->
+<div class="page active" id="page-home">
+  <div class="hd">
+    <div class="hd-in">
+      <button class="hd-btn" onclick="window.go('settings')">设置</button>
+      <div class="hd-t">AI 酒馆</div>
+      <button class="hd-btn acc" onclick="window.newChar()">新建</button>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="sec-t">角色列表</div>
+    <div id="charList"></div>
+    <div style="padding:12px 12px 0;">
+      <button class="btn blk" onclick="window.openImport()">导入角色卡 JSON</button>
+    </div>
+    <div style="padding:12px 12px 40px;">
+      <button class="btn blk" onclick="window.resetDemo()">恢复示例角色</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 聊天页 ==================== -->
+<div class="page" id="page-chat">
+  <div class="hd">
+    <div class="hd-in">
+      <button class="hd-btn" onclick="window.go('home')">返回</button>
+      <div class="hd-t" id="chatTitle">对话</div>
+      <button class="hd-btn" onclick="window.openConvList()">记录</button>
+    </div>
+  </div>
+  <div class="bd" id="chatBody"></div>
+  <div class="ft">
+    <div class="in-w">
+      <textarea id="msgInput" rows="1" placeholder="说点什么…"></textarea>
+      <button class="in-stop" id="btnStop" onclick="window.stopGen()">停止</button>
+      <button class="in-send" id="btnSend" onclick="window.sendMsg()">发送</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 设置页 ==================== -->
+<div class="page" id="page-settings">
+  <div class="hd">
+    <div class="hd-in">
+      <button class="hd-btn" onclick="window.go('home')">返回</button>
+      <div class="hd-t">设置</div>
+      <button class="hd-btn acc" onclick="window.saveSettings()">保存</button>
+    </div>
+  </div>
+  <div class="bd">
+    <div class="fm">
+      <div class="fm-lb">API 地址</div>
+      <input class="fm-ip" id="setBase" type="text" placeholder="https://api.deepseek.com/v1"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="fm-hint">OpenAI 兼容接口的 base 地址，末尾不用加斜杠。程序会自动请求 /chat/completions</div>
+
+      <div class="fm-lb">API Key</div>
+      <input class="fm-ip" id="setKey" type="text" placeholder="sk-..." autocapitalize="off"
+             autocorrect="off" spellcheck="false">
+      <div class="fm-hint">只保存在本机 localStorage，不会上传到任何第三方（只会发给上面的 API 地址）</div>
+
+      <div class="fm-lb">模型名</div>
+      <input class="fm-ip" id="setModel" type="text" placeholder="deepseek-chat"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+
+      <div class="fm-lb">温度（Temperature）</div>
+      <div class="rng-w">
+        <input type="range" id="setTemp" min="0" max="2" step="0.1" value="1"
+               oninput="window.onTempChange()">
+        <div class="rng-v" id="tempVal">1.0</div>
+      </div>
+      <div class="fm-hint">越高越随机有创意，越低越稳定保守。推荐 0.8 ~ 1.2</div>
+
+      <div class="fm-lb">连接测试</div>
+      <button class="btn blk" onclick="window.testApi()">测试 API 连接</button>
+
+      <div class="fm-lb">数据</div>
+      <button class="btn blk" onclick="window.exportAll()">导出全部数据（JSON）</button>
+      <div style="height:10px;"></div>
+      <button class="btn blk dgr" onclick="window.wipeAll()">清空全部数据</button>
+
+      <div class="fm-hint" style="margin-top:22px;text-align:center;color:#5b6270;">
+        AI 酒馆 · 单文件离线版<br>数据存于本机，清除 App 数据会一并丢失
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 通用确认弹窗 ==================== -->
+<div class="mask" id="maskConfirm">
+  <div class="dlg">
+    <div class="dlg-hd" id="confirmTitle">提示</div>
+    <div class="dlg-bd"><div class="dlg-txt" id="confirmText"></div></div>
+    <div class="dlg-ft">
+      <button class="btn" onclick="window.doConfirmCancel()">取消</button>
+      <button class="btn dgr" id="confirmOkBtn" onclick="window.doConfirmOK()">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 角色编辑弹窗 ==================== -->
+<div class="mask" id="maskChar">
+  <div class="dlg">
+    <div class="dlg-hd" id="charDlgTitle">编辑角色</div>
+    <div class="dlg-bd">
+      <div class="fm-lb">头像（点击选择）</div>
+      <div class="emo-g" id="emoGrid"></div>
+      <div class="fm-lb">名称</div>
+      <input class="fm-ip" id="charName" type="text" placeholder="例如：林小雨">
+      <div class="fm-lb">人设描述</div>
+      <textarea class="fm-tx" id="charDesc" placeholder="性格、背景、说话风格…"></textarea>
+      <div class="fm-lb">开场白</div>
+      <textarea class="fm-tx" id="charFirst" placeholder="进入对话时角色说的第一句话"></textarea>
+    </div>
+    <div class="dlg-ft">
+      <button class="btn" onclick="window.closeMask('maskChar')">取消</button>
+      <button class="btn pri" onclick="window.saveChar()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 导入弹窗 ==================== -->
+<div class="mask" id="maskImport">
+  <div class="dlg">
+    <div class="dlg-hd">导入角色卡</div>
+    <div class="dlg-bd">
+      <div class="fm-hint" style="margin-top:0;">
+        支持 SillyTavern / TavernAI 角色卡，自动识别 name、description、personality、first_mes 字段。
+        可以直接把 JSON 粘贴到下面，也可以选择文件。
+      </div>
+      <div class="fm-lb">方式一：选择 .json 文件</div>
+      <input type="file" id="importFile" accept=".json,application/json"
+             style="width:100%;font-size:14px;color:#8b93a1;">
+      <div class="fm-lb">方式二：粘贴 JSON 文本</div>
+      <textarea class="fm-tx" id="importText" placeholder='{"name":"...","description":"...","first_mes":"..."}'></textarea>
+    </div>
+    <div class="dlg-ft">
+      <button class="btn" onclick="window.closeMask('maskImport')">取消</button>
+      <button class="btn pri" onclick="window.doImport()">导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 对话记录弹窗 ==================== -->
+<div class="mask" id="maskConv">
+  <div class="dlg">
+    <div class="dlg-hd">对话记录</div>
+    <div class="dlg-bd" id="convList" style="padding:0 16px;"></div>
+    <div class="dlg-ft">
+      <button class="btn" onclick="window.closeMask('maskConv')">关闭</button>
+      <button class="btn" onclick="window.exportConv()">导出</button>
+      <button class="btn pri" onclick="window.newConv()">新建</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 导出弹窗 ==================== -->
+<div class="mask" id="maskExport">
+  <div class="dlg">
+    <div class="dlg-hd">导出数据</div>
+    <div class="dlg-bd">
+      <div class="fm-hint" style="margin-top:0;">
+        下面就是完整 JSON。点「复制」后可粘贴到备忘录 / 微信收藏保存；
+        「下载」在浏览器里可用，App 内可能被拦截，失败就用复制。
+      </div>
+      <textarea class="fm-tx" id="exportText" style="min-height:180px;font-size:12px;"
+                readonly></textarea>
+    </div>
+    <div class="dlg-ft">
+      <button class="btn" onclick="window.closeMask('maskExport')">关闭</button>
+      <button class="btn" onclick="window.doDownloadExport()">下载</button>
+      <button class="btn pri" onclick="window.doCopyExport()">复制</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   AI 酒馆 — 单文件离线版
+   兼容 iOS 12+/15.1 WKWebView：老语法、无外部依赖、全局函数挂 window
+   ========================================================================= */
+
+/* ------------------------- 全局状态 ------------------------- */
+var STORE_KEY = 'aichat_v1';
+var DB = null;
+var UI = {
+  view: 'home',
+  charId: null,      // 当前聊天角色
+  convId: null,      // 当前对话
+  editCharId: null,  // 正在编辑的角色（null=新建）
+  editAvatar: '🙂',
+  generating: false,
+  genSeq: 0
+};
+var __confirmCb = null;   // {fn:'函数名', arg:参数} —— 不提前清空
+var EMOJIS = ['😀','🙂','😎','🤖','👧','👦','🧑','👩','🧙','🧛','👑','🐱',
+              '🐶','🦊','🐼','🐧','🐉','🌸','🍀','⚔️','🔮','🎭','☕','🌙'];
+
+/* ------------------------- 工具函数 ------------------------- */
+function $(id){ return document.getElementById(id); }
+
+function toast(msg){
+  try{
+    var t = $('toast');
+    t.textContent = String(msg);
+    t.className = 'show';
+    if (toast._t) clearTimeout(toast._t);
+    toast._t = setTimeout(function(){ t.className = ''; }, 2000);
+  }catch(e){}
+}
+
+function esc(s){
+  s = (s === null || s === undefined) ? '' : String(s);
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function uid(){
+  return 'x' + Date.now().toString(36) + Math.floor(Math.random()*1e6).toString(36);
+}
+
+function nowStr(){
+  var d = new Date();
+  var p = function(n){ return n < 10 ? '0'+n : ''+n; };
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+
+         p(d.getHours())+':'+p(d.getMinutes());
+}
+
+function trim(s){ return String(s === null || s === undefined ? '' : s).replace(/^\s+|\s+$/g,''); }
+
+function copyText(txt){
+  var ok = false;
+  try{
+    var ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try{ ta.setSelectionRange(0, ta.value.length); }catch(e2){}
+    ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+  }catch(e){ ok = false; }
+  return ok;
+}
+
+/* ------------------------- 存储 ------------------------- */
+function defaultDB(){
+  return {
+    settings: { apiBase:'https://api.deepseek.com/v1', apiKey:'', model:'deepseek-chat', temperature:1.0 },
+    chars: demoChars(),
+    convs: [],
+    v: 1
+  };
+}
+
+function demoChars(){
+  return [
+    {
+      id: 'demo_xiaoyu',
+      name: '林小雨',
+      avatar: '👧',
+      desc: '你青梅竹马的邻家女孩，22岁，在美院读大四，学的是油画。性格开朗爱笑，有点小迷糊，但心思细腻。说话随性自然，爱用"诶"、"嘛"、"啦"这类语气词，偶尔会撒个小娇。喜欢在傍晚拉着你去天台看晚霞，坚信"晚霞是天空在偷偷画画"。讨厌香菜，怕黑，养了一只叫"芝麻"的橘猫。',
+      first_mes: '诶，你终于来啦！我刚在天台画画来着，今天的晚霞超——级好看，可惜你错过了。\n话说，你今天怎么这么晚呀？'
+    },
+    {
+      id: 'demo_laozhou',
+      name: '老周',
+      avatar: '🧑',
+      desc: '45岁的烧烤摊老板，东北人，在这个城市开了十几年店。嗓门大、心肠热，见谁都爱唠两句。说话带着浓重的东北味儿，常用"整"、"咋地"、"得嘞"、"那可不"。人生信条是"事儿再大，撸串儿就好了"。认识街坊邻居每一个人，谁家有难处他都偷偷帮衬。手上有一道被炭火烫的旧疤。',
+      first_mes: '哟，来了啊！还是老位置坐呗。\n今儿羊肉串刚到的货，新鲜着呢，给你先整二十串？'
+    }
+  ];
+}
+
+function loadDB(){
+  try{
+    var raw = window.localStorage.getItem(STORE_KEY);
+    if (!raw){ DB = defaultDB(); saveDB(); return; }
+    var o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') throw new Error('bad');
+    if (!o.settings) o.settings = defaultDB().settings;
+    if (!o.chars || !o.chars.length) o.chars = demoChars();
+    if (!o.convs) o.convs = [];
+    // 补全字段
+    var i, c, s = o.settings, d = defaultDB().settings;
+    for (var k in d){ if (s[k] === undefined || s[k] === null || s[k] === ''){ if (k!=='apiKey') s[k] = d[k]; } }
+    if (s.apiBase === '' || s.apiBase === undefined) s.apiBase = d.apiBase;
+    if (typeof s.temperature !== 'number') s.temperature = 1.0;
+    for (i = 0; i < o.chars.length; i++){
+      c = o.chars[i];
+      if (!c.id) c.id = uid();
+      if (!c.avatar) c.avatar = '🙂';
+      if (c.desc === undefined) c.desc = '';
+      if (c.first_mes === undefined) c.first_mes = '';
+      if (!c.name) c.name = '未命名';
+    }
+    // 清理上次被系统强杀时残留的 streaming 标记，
+    // 否则那条消息会永远卡在「正在输入」状态
+    for (i = 0; i < o.convs.length; i++){
+      var cv = o.convs[i];
+      if (!cv.msgs) cv.msgs = [];
+      if (!cv.updatedAt) cv.updatedAt = cv.createdAt || 0;
+      for (var j = 0; j < cv.msgs.length; j++){
+        if (cv.msgs[j].streaming) delete cv.msgs[j].streaming;
+      }
+    }
+    DB = o;
+  }catch(e){
+    DB = defaultDB();
+    saveDB();
+    setTimeout(function(){ toast('本地数据损坏，已重置'); }, 400);
+  }
+}
+
+function saveDB(){
+  try{
+    window.localStorage.setItem(STORE_KEY, JSON.stringify(DB));
+    return true;
+  }catch(e){
+    toast('保存失败：存储空间可能已满');
+    return false;
+  }
+}
+
+function getChar(id){
+  for (var i = 0; i < DB.chars.length; i++){ if (DB.chars[i].id === id) return DB.chars[i]; }
+  return null;
+}
+
+function getConv(id){
+  for (var i = 0; i < DB.convs.length; i++){ if (DB.convs[i].id === id) return DB.convs[i]; }
+  return null;
+}
+
+/* ------------------------- 视图切换 ------------------------- */
+function go(v){
+  try{
+    UI.view = v;
+    var ps = document.querySelectorAll('.page');
+    for (var i = 0; i < ps.length; i++) ps[i].className = 'page';
+    var el = $('page-' + v);
+    if (el) el.className = 'page active';
+    if (v === 'home') renderCharList();
+    if (v === 'chat') renderChat(true);
+    if (v === 'settings') fillSettings();
+  }catch(e){ toast('切换页面出错'); }
+}
+
+function closeMask(id){
+  try{
+    var m = $(id);
+    if (m) m.className = 'mask';
+  }catch(e){}
+}
+function openMask(id){
+  try{
+    var m = $(id);
+    if (m) m.className = 'mask show';
+  }catch(e){}
+}
+
+/* ------------------------- 确认弹窗（全局回调，禁用闭包） ------------------------- */
+function showConfirm(text, title, fnName, arg, okText){
+  try{
+    $('confirmText').textContent = text;
+    $('confirmTitle').textContent = title || '提示';
+    $('confirmOkBtn').textContent = okText || '确定';
+    __confirmCb = { fn: fnName, arg: arg };
+    openMask('maskConfirm');
+  }catch(e){ toast('弹窗出错'); }
+}
+
+function doConfirmOK(){
+  var cb = __confirmCb;        // 先取出，再关窗，最后执行（不提前清空）
+  closeMask('maskConfirm');
+  __confirmCb = null;
+  if (!cb) return;
+  try{
+    var f = window[cb.fn];
+    if (typeof f === 'function') f(cb.arg);
+  }catch(e){ toast('执行失败：' + e.message); }
+}
+
+function doConfirmCancel(){
+  closeMask('maskConfirm');
+  __confirmCb = null;
+}
+
+/* =========================================================================
+   角色管理
+   ========================================================================= */
+function renderCharList(){
+  try{
+    var box = $('charList');
+    var h = '';
+    if (!DB.chars.length){
+      h = '<div class="empty">还没有角色<br>点右上角「新建」或导入角色卡</div>';
+    } else {
+      for (var i = 0; i < DB.chars.length; i++){
+        var c = DB.chars[i];
+        var n = countConv(c.id);
+        h += '<div class="card" onclick="window.startChat(\'' + esc(c.id) + '\')">' +
+               '<div class="card-av">' + esc(c.avatar) + '</div>' +
+               '<div class="card-mn">' +
+                 '<div class="card-nm">' + esc(c.name) + '</div>' +
+                 '<div class="card-ds">' + esc(shorten(c.desc, 26) || '暂无设定') +
+                   (n ? ' · ' + n + ' 个对话' : '') + '</div>' +
+               '</div>' +
+               '<div class="card-ops">' +
+                 '<button class="iop" onclick="event.stopPropagation();window.editChar(\'' + esc(c.id) + '\')">✏️</button>' +
+                 '<button class="iop" onclick="event.stopPropagation();window.askDeleteChar(\'' + esc(c.id) + '\')">🗑</button>' +
+               '</div>' +
+             '</div>';
+      }
+    }
+    box.innerHTML = h;
+  }catch(e){ toast('渲染角色列表失败'); }
+}
+
+function shorten(s, n){
+  s = trim(s).replace(/\s+/g, ' ');
+  if (s.length <= n) return s;
+  return s.substring(0, n) + '…';
+}
+
+function countConv(charId){
+  var n = 0;
+  for (var i = 0; i < DB.convs.length; i++){ if (DB.convs[i].charId === charId) n++; }
+  return n;
+}
+
+function newChar(){
+  UI.editCharId = null;
+  UI.editAvatar = '🙂';
+  $('charDlgTitle').textContent = '新建角色';
+  $('charName').value = '';
+  $('charDesc').value = '';
+  $('charFirst').value = '';
+  renderEmojiGrid();
+  openMask('maskChar');
+}
+
+function editChar(id){
+  try{
+    var c = getChar(id);
+    if (!c){ toast('角色不存在'); return; }
+    UI.editCharId = id;
+    UI.editAvatar = c.avatar || '🙂';
+    $('charDlgTitle').textContent = '编辑角色';
+    $('charName').value = c.name || '';
+    $('charDesc').value = c.desc || '';
+    $('charFirst').value = c.first_mes || '';
+    renderEmojiGrid();
+    openMask('maskChar');
+  }catch(e){ toast('打开编辑失败'); }
+}
+
+function renderEmojiGrid(){
+  try{
+    var h = '';
+    for (var i = 0; i < EMOJIS.length; i++){
+      var e = EMOJIS[i];
+      var on = (e === UI.editAvatar) ? ' on' : '';
+      h += '<div class="emo-i"><button class="' + on + '" onclick="window.pickEmoji(\'' + esc(e) + '\')">' +
+           esc(e) + '</button></div>';
+    }
+    $('emoGrid').innerHTML = h;
+  }catch(e){}
+}
+
+function pickEmoji(e){
+  try{
+    UI.editAvatar = e;
+    renderEmojiGrid();
+  }catch(err){}
+}
+
+function saveChar(){
+  try{
+    var name = trim($('charName').value);
+    if (!name){ toast('请填写角色名称'); return; }
+    var desc = trim($('charDesc').value);
+    var first = trim($('charFirst').value);
+
+    if (UI.editCharId){
+      var c = getChar(UI.editCharId);
+      if (!c){ toast('角色不存在'); return; }
+      c.name = name; c.avatar = UI.editAvatar; c.desc = desc; c.first_mes = first;
+      toast('已保存「' + name + '」');
+    } else {
+      DB.chars.push({ id: uid(), name: name, avatar: UI.editAvatar, desc: desc, first_mes: first });
+      toast('已添加「' + name + '」');
+    }
+    saveDB();
+    closeMask('maskChar');
+    renderCharList();
+  }catch(e){ toast('保存失败：' + e.message); }
+}
+
+function askDeleteChar(id){
+  var c = getChar(id);
+  if (!c) return;
+  showConfirm('删除角色「' + c.name + '」？\n该角色下的所有对话也会一起删除。', '删除角色', 'doDeleteChar', id, '删除');
+}
+
+function doDeleteChar(id){
+  try{
+    var c = getChar(id);
+    if (!c) return;
+    var nc = [], i, removed = 0;
+    for (i = 0; i < DB.convs.length; i++){
+      if (DB.convs[i].charId === id) removed++;
+      else nc.push(DB.convs[i]);
+    }
+    DB.convs = nc;
+    var nc2 = [];
+    for (i = 0; i < DB.chars.length; i++){ if (DB.chars[i].id !== id) nc2.push(DB.chars[i]); }
+    DB.chars = nc2;
+    if (UI.charId === id){ UI.charId = null; UI.convId = null; }
+    saveDB();
+    renderCharList();
+    toast('已删除角色，同时清除 ' + removed + ' 个对话');
+  }catch(e){ toast('删除失败'); }
+}
+
+function resetDemo(){
+  showConfirm('恢复内置的 2 个示例角色？已存在的同名角色会被跳过。', '恢复示例', 'doResetDemo', null, '恢复');
+}
+
+function doResetDemo(){
+  try{
+    var d = demoChars(), added = 0, skip = 0, i, j, exists;
+    for (i = 0; i < d.length; i++){
+      exists = false;
+      for (j = 0; j < DB.chars.length; j++){ if (DB.chars[j].name === d[i].name) exists = true; }
+      if (exists) skip++;
+      else { DB.chars.push(d[i]); added++; }
+    }
+    saveDB();
+    renderCharList();
+    toast('已添加 ' + added + ' 个，跳过 ' + skip + ' 个');
+  }catch(e){ toast('恢复失败'); }
+}
+
+/* ------------------------- 导入角色卡 ------------------------- */
+function openImport(){
+  $('importText').value = '';
+  try{ $('importFile').value = ''; }catch(e){}
+  openMask('maskImport');
+}
+
+function doImport(){
+  try{
+    var txt = trim($('importText').value);
+    if (!txt){
+      toast('请粘贴 JSON 或选择文件');
+      return;
+    }
+    importJSONText(txt);
+  }catch(e){ toast('导入失败：' + e.message); }
+}
+
+function importJSONText(txt){
+  try{
+    var o = JSON.parse(txt);
+    var list = [];
+    if (Object.prototype.toString.call(o) === '[object Array]') list = o;
+    else list = [o];
+
+    var added = 0, skip = 0, i;
+    for (i = 0; i < list.length; i++){
+      var c = normalizeCard(list[i]);
+      if (!c){ skip++; continue; }
+      // 同名则覆盖
+      var hit = -1, j;
+      for (j = 0; j < DB.chars.length; j++){ if (DB.chars[j].name === c.name) hit = j; }
+      if (hit >= 0){ c.id = DB.chars[hit].id; DB.chars[hit] = c; }
+      else DB.chars.push(c);
+      added++;
+    }
+    if (!added){ toast('没有识别到有效角色（跳过 ' + skip + ' 条）'); return; }
+    saveDB();
+    closeMask('maskImport');
+    renderCharList();
+    toast('导入成功 ' + added + ' 个' + (skip ? '，跳过 ' + skip + ' 条' : ''));
+  }catch(e){
+    toast('JSON 格式错误：' + e.message);
+  }
+}
+
+/* 兼容 SillyTavern / TavernAI / 常见角色卡结构 */
+function normalizeCard(o){
+  try{
+    if (!o || typeof o !== 'object') return null;
+    var src = o;
+    // v2 卡片：{spec:'chara_card_v2', data:{...}}
+    if (o.data && typeof o.data === 'object') src = o.data;
+    // 再兜一层 {card:{...}}
+    if (!src.name && o.card && typeof o.card === 'object') src = o.card;
+
+    var name = trim(src.name || src.char_name || src.title || '');
+    if (!name) return null;
+
+    var desc = trim(src.description || src.char_persona || src.desc || '');
+    var pers = trim(src.personality || '');
+    var scen = trim(src.scenario || '');
+    var first = trim(src.first_mes || src.first_message || src.greeting || src.char_greeting || '');
+
+    // 把 personality / scenario 合并进人设，避免信息丢失
+    var parts = [];
+    if (desc) parts.push(desc);
+    if (pers) parts.push('性格：' + pers);
+    if (scen) parts.push('场景：' + scen);
+
+    var avatar = trim(src.avatar || src.char_avatar || '');
+    // 只接受单个 emoji 之类的短字符，图片 URL 一律忽略（离线不加载外链）
+    if (!avatar || avatar.length > 4 || avatar.indexOf('http') === 0) avatar = '🙂';
+
+    return {
+      id: uid(),
+      name: name.substring(0, 40),
+      avatar: avatar,
+      desc: parts.join('\n'),
+      first_mes: first
+    };
+  }catch(e){ return null; }
+}
+
+/* =========================================================================
+   对话
+   ========================================================================= */
+function startChat(charId){
+  try{
+    var c = getChar(charId);
+    if (!c){ toast('角色不存在'); return; }
+    UI.charId = charId;
+    // 找该角色最近的一个对话
+    var latest = null;
+    for (var i = 0; i < DB.convs.length; i++){
+      if (DB.convs[i].charId === charId){
+        if (!latest || DB.convs[i].updatedAt > latest.updatedAt) latest = DB.convs[i];
+      }
+    }
+    if (latest){
+      UI.convId = latest.id;
+    } else {
+      createConv(charId, false);
+    }
+    go('chat');
+  }catch(e){ toast('打开对话失败'); }
+}
+
+function createConv(charId, jump){
+  var c = getChar(charId);
+  var conv = {
+    id: uid(),
+    charId: charId,
+    title: (c ? c.name : '对话') + ' · ' + nowStr().substring(5, 16),
+    msgs: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now()
+  };
+  // 自动发开场白
+  if (c && trim(c.first_mes)){
+    conv.msgs.push({ role: 'assistant', content: c.first_mes, ts: Date.now() });
+  }
+  DB.convs.push(conv);
+  UI.charId = charId;
+  UI.convId = conv.id;
+  saveDB();
+  if (jump !== false){ closeMask('maskConv'); go('chat'); }
+  return conv;
+}
+
+function newConv(){
+  try{
+    if (!UI.charId){ toast('请先选择角色'); return; }
+    createConv(UI.charId, true);
+    toast('已新建对话');
+  }catch(e){ toast('新建失败'); }
+}
+
+function switchConv(id){
+  try{
+    var conv = getConv(id);
+    if (!conv){ toast('对话不存在'); return; }
+    UI.convId = id;
+    UI.charId = conv.charId;
+    closeMask('maskConv');
+    go('chat');
+  }catch(e){ toast('切换失败'); }
+}
+
+function askDeleteConv(id){
+  var conv = getConv(id);
+  if (!conv) return;
+  showConfirm('删除对话「' + conv.title + '」？共 ' + conv.msgs.length + ' 条消息，不可恢复。',
+              '删除对话', 'doDeleteConv', id, '删除');
+}
+
+function doDeleteConv(id){
+  try{
+    var nc = [], i;
+    for (i = 0; i < DB.convs.length; i++){ if (DB.convs[i].id !== id) nc.push(DB.convs[i]); }
+    DB.convs = nc;
+    if (UI.convId === id){
+      UI.convId = null;
+      // 自动切到该角色最近的另一个对话
+      var latest = null;
+      for (i = 0; i < DB.convs.length; i++){
+        if (DB.convs[i].charId === UI.charId){
+          if (!latest || DB.convs[i].updatedAt > latest.updatedAt) latest = DB.convs[i];
+        }
+      }
+      if (latest) UI.convId = latest.id;
+      else if (UI.charId) createConv(UI.charId, false);
+    }
+    saveDB();
+    closeMask('maskConv');
+    go('chat');
+    toast('已删除对话');
+  }catch(e){ toast('删除失败'); }
+}
+
+function openConvList(){
+  try{
+    var h = '';
+    var mine = [];
+    for (var i = 0; i < DB.convs.length; i++){
+      if (DB.convs[i].charId === UI.charId) mine.push(DB.convs[i]);
+    }
+    mine.sort(function(a,b){ return b.updatedAt - a.updatedAt; });
+    if (!mine.length){
+      h = '<div class="empty" style="padding:30px 10px;">这个角色还没有对话</div>';
+    } else {
+      for (var j = 0; j < mine.length; j++){
+        var cv = mine[j];
+        var last = cv.msgs.length ? cv.msgs[cv.msgs.length-1].content : '';
+        h += '<div class="conv-i" onclick="window.switchConv(\'' + esc(cv.id) + '\')">' +
+               '<div class="conv-mn">' +
+                 '<div class="conv-nm">' + esc(cv.title) +
+                   (cv.id === UI.convId ? ' <span style="color:#07c160;font-size:12px;">当前</span>' : '') +
+                 '</div>' +
+                 '<div class="conv-dt">' + esc(shorten(last, 22) || '空对话') + '</div>' +
+               '</div>' +
+               '<button class="iop" onclick="event.stopPropagation();window.askDeleteConv(\'' + esc(cv.id) + '\')">🗑</button>' +
+             '</div>';
+      }
+    }
+    $('convList').innerHTML = h;
+    openMask('maskConv');
+  }catch(e){ toast('打开记录失败'); }
+}
+
+/* ------------------------- 渲染聊天 ------------------------- */
+function renderChat(scrollBottom){
+  try{
+    var conv = getConv(UI.convId);
+    var c = getChar(UI.charId);
+    var bd = $('chatBody');
+    $('chatTitle').textContent = c ? c.name : '对话';
+    if (!conv){
+      bd.innerHTML = '<div class="empty">没有进行中的对话</div>';
+      return;
+    }
+    if (!conv.msgs.length){
+      bd.innerHTML = '<div class="tip"><span>还没有消息，打个招呼吧</span></div>';
+      return;
+    }
+    var h = '<div class="tip"><span>' + esc(conv.title) + '</span></div>';
+    var avAi = c ? c.avatar : '🤖';
+    for (var i = 0; i < conv.msgs.length; i++){
+      var m = conv.msgs[i];
+      var isMe = (m.role === 'user');
+      var cls = isMe ? 'me' : 'ai';
+      if (m.error) cls += ' err';
+      var av = isMe ? '🙋' : avAi;
+      var body;
+      if (!isMe && m.content === '' && m.streaming){
+        body = '<span class="typing">正在输入</span>';
+      } else {
+        body = esc(m.content);
+      }
+      h += '<div class="row ' + cls + '">' +
+             '<div class="av">' + esc(av) + '</div>' +
+             '<div class="bub">' + body + '</div>' +
+           '</div>';
+    }
+    bd.innerHTML = h;
+    if (scrollBottom !== false) scrollBottomNow();
+  }catch(e){ toast('渲染消息失败'); }
+}
+
+/* 只更新最后一条气泡，避免流式时整页重绘 */
+function updateLastBubble(){
+  try{
+    var conv = getConv(UI.convId);
+    if (!conv || !conv.msgs.length) return;
+    var bd = $('chatBody');
+    var rows = bd.querySelectorAll('.row');
+    if (!rows.length) return;
+    var last = rows[rows.length - 1];
+    var bub = last.querySelector('.bub');
+    if (!bub) return;
+    var m = conv.msgs[conv.msgs.length - 1];
+    if (m.streaming && m.content === ''){
+      bub.innerHTML = '<span class="typing">正在输入</span>';
+    } else {
+      bub.textContent = m.content;
+    }
+    // 接近底部才自动滚动，避免用户上翻看历史时被拽下来
+    if (bd.scrollHeight - bd.scrollTop - bd.clientHeight < 140) scrollBottomNow();
+  }catch(e){}
+}
+
+function scrollBottomNow(){
+  try{
+    var bd = $('chatBody');
+    bd.scrollTop = bd.scrollHeight;
+  }catch(e){}
+}
+
+/* =========================================================================
+   原生通道 / 网络请求
+   ========================================================================= */
+function hasNative(){
+  try{
+    return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeFetch);
+  }catch(e){ return false; }
+}
+
+var _nseq = 0;
+var _ncb = {};
+
+/* 通过 WKWebView 原生通道发请求（绕开 file:// 的 CORS） */
+function nativeRequest(opt){
+  var id = 'n' + (++_nseq);
+  _ncb[id] = opt;
+  try{
+    window.webkit.messageHandlers.nativeFetch.postMessage({
+      id: id,
+      url: opt.url,
+      method: opt.method || 'GET',
+      headers: opt.headers || {},
+      body: opt.body || null,
+      stream: !!opt.stream,
+      timeout: opt.timeout || 60
+    });
+  }catch(e){
+    delete _ncb[id];
+    if (opt.onError) opt.onError('原生通道调用失败：' + e.message);
+  }
+  return id;
+}
+
+/* 原生 -> JS 回调（壳里用 evaluateJavaScript 调用） */
+window.__nativeChunk = function(id, text){
+  try{
+    var c = _ncb[id];
+    if (c && c.onChunk) c.onChunk(text);
+  }catch(e){}
+};
+window.__nativeDone = function(id, status, err){
+  try{
+    var c = _ncb[id];
+    delete _ncb[id];
+    if (!c) return;
+    if (err){ if (c.onError) c.onError(err); }
+    else { if (c.onDone) c.onDone(status); }
+  }catch(e){}
+};
+
+function nativeAbort(id){
+  try{
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeAbort){
+      window.webkit.messageHandlers.nativeAbort.postMessage({ id: id });
+    }
+  }catch(e){}
+}
+
+/* 通用取文本：App 内走原生，浏览器回退 fetch
+   注意：壳在非流式模式下会把整段响应通过 onChunk 分批给到 JS，这里自行累积 */
+function apiGetText(url, timeout, cb, onErr){
+  if (hasNative()){
+    var buf = '';
+    nativeRequest({
+      url: url, method: 'GET', stream: false, timeout: timeout || 30,
+      onChunk: function(t){ buf += t; },
+      onDone: function(status){ cb(buf, status); },
+      onError: function(e){ if (onErr) onErr(e); }
+    });
+  } else {
+    fetch(url, { method: 'GET' }).then(function(r){
+      return r.text().then(function(t){ cb(t, r.status); });
+    })['catch'](function(e){ if (onErr) onErr(e.message); });
+  }
+}
+
+function normBase(b){
+  b = trim(b);
+  if (!b) b = 'https://api.deepseek.com/v1';
+  while (b.length && b.charAt(b.length-1) === '/') b = b.substring(0, b.length-1);
+  return b;
+}
+
+function buildMessages(conv, c){
+  var sys = '';
+  if (c){
+    sys += '你将扮演一个角色进行对话。\n\n角色名：' + c.name + '\n';
+    if (trim(c.desc)) sys += '角色设定：\n' + trim(c.desc) + '\n';
+    sys += '\n你正在扮演' + c.name + '，全程用中文以' + c.name + '的口吻自然对话，不要暴露自己是AI，回复不要带*号动作描述，直接说话';
+  } else {
+    sys = '你是一个友好的中文对话助手。';
+  }
+  var out = [{ role: 'system', content: sys }];
+  var msgs = conv.msgs;
+  var start = 0;
+  if (msgs.length > 50) start = msgs.length - 50;  // 防止超长上下文
+  for (var i = start; i < msgs.length; i++){
+    var m = msgs[i];
+    if (!m.content) continue;
+    if (m.role !== 'user' && m.role !== 'assistant') continue;
+    out.push({ role: m.role, content: m.content });
+  }
+  return out;
+}
+
+/* SSE 增量解析器 */
+function makeSSEParser(onDelta, onDone){
+  var buf = '';
+  var done = false;
+  return {
+    feed: function(text){
+      if (done) return;
+      buf += text;
+      var lines = buf.split('\n');
+      buf = lines.pop();               // 最后一段可能不完整，留在缓冲
+      for (var i = 0; i < lines.length; i++){
+        var line = trim(lines[i]);
+        if (!line) continue;
+        if (line.indexOf('data:') !== 0) continue;
+        var payload = trim(line.substring(5));
+        if (payload === '[DONE]'){ done = true; onDone(); return; }
+        var j = null;
+        try{ j = JSON.parse(payload); }catch(e){ continue; }
+        if (j && j.error){
+          onDelta(null, (j.error.message || '接口返回错误'));
+          done = true; onDone(); return;
+        }
+        try{
+          var ch = j.choices && j.choices[0];
+          var d = ch && (ch.delta || ch.message);
+          if (d && typeof d.content === 'string' && d.content){
+            onDelta(d.content, null);
+          }
+        }catch(e2){}
+      }
+    }
+  };
+}
+
+function extractNonStream(jsonText){
+  var j = JSON.parse(jsonText);
+  if (j.error) throw new Error(j.error.message || '接口返回错误');
+  var ch = j.choices && j.choices[0];
+  if (!ch) throw new Error('接口响应格式异常');
+  var c = ch.message ? ch.message.content : ch.text;
+  return c === undefined || c === null ? '' : String(c);
+}
+
+/* 发起一次对话补全 */
+function callAPI(conv, c, handlers){
+  var base = normBase(DB.settings.apiBase);
+  var key = trim(DB.settings.apiKey);
+  var model = trim(DB.settings.model) || 'deepseek-chat';
+  var url = base + '/chat/completions';
+  var msgs = buildMessages(conv, c);
+  var temp = Number(DB.settings.temperature);
+  if (isNaN(temp)) temp = 1.0;
+
+  if (!key){ handlers.onError('请先在设置里填写 API Key'); return null; }
+
+  var headers = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + key
+  };
+  var bodyStream = JSON.stringify({ model: model, messages: msgs, temperature: temp, stream: true });
+  var bodyPlain  = JSON.stringify({ model: model, messages: msgs, temperature: temp, stream: false });
+
+  var gotAny = false;
+  var finished = false;
+  callAPI._nativeId = null;   // 每次调用重置，停止时用它真正中止原生请求
+  var parser = makeSSEParser(function(delta, err){
+    if (err){ gotAny = true; }
+    if (delta){ gotAny = true; handlers.onDelta(delta); }
+  }, function(){
+    if (finished) return;
+    finished = true;
+    handlers.onDone();
+  });
+
+  function fail(msg){
+    if (finished) return;
+    finished = true;
+    handlers.onError(msg);
+  }
+
+  if (hasNative()){
+    callAPI._nativeId = nativeRequest({
+      url: url, method: 'POST', headers: headers, body: bodyStream,
+      stream: true, timeout: 120,
+      onChunk: function(t){ parser.feed(t); },
+      onDone: function(status){
+        callAPI._nativeId = null;
+        if (finished) return;
+        if (status >= 400){   // 原生返回了 HTTP 错误状态且没解析出内容
+          if (gotAny) { finished = true; handlers.onDone(); }
+          else fallbackNonStream();
+        } else {
+          finished = true;
+          handlers.onDone();
+        }
+      },
+      onError: function(e){
+        callAPI._nativeId = null;
+        if (gotAny) fail(e); else fallbackNonStream();
+      }
+    });
+    return null;
+  }
+
+  // 浏览器路径：fetch + ReadableStream
+  callAPI._ac = null;   // 每次调用重置，避免复用已 abort 的 controller
+  try{
+    if (typeof AbortController !== 'undefined') callAPI._ac = new AbortController();
+  }catch(e){}
+  var init = { method: 'POST', headers: headers, body: bodyStream };
+  if (callAPI._ac) init.signal = callAPI._ac.signal;
+
+  fetch(url, init).then(function(res){
+    if (!res.ok){
+      return res.text().then(function(t){
+        throw new Error('HTTP ' + res.status + ' ' + shorten(t, 200));
+      });
+    }
+    if (!res.body || typeof res.body.getReader !== 'function'){
+      throw new Error('NO_STREAM');
+    }
+    var reader = res.body.getReader();
+    var dec = new TextDecoder('utf-8');
+    function pump(){
+      return reader.read().then(function(r){
+        if (r.done){
+          if (!finished){ finished = true; handlers.onDone(); }
+          return;
+        }
+        var txt = dec.decode(r.value, { stream: true });
+        if (txt) parser.feed(txt);
+        return pump();
+      });
+    }
+    return pump();
+  })['catch'](function(e){
+    if (e && e.name === 'AbortError'){ fail('已停止'); return; }
+    if (gotAny){ fail(e.message || String(e)); return; }
+    fallbackNonStream();   // 流式失败且一个字都没收到 -> 降级
+  });
+
+  function fallbackNonStream(){
+    if (finished) return;
+    var p;
+    if (hasNative()){
+      p = new Promise(function(resolve, reject){
+        nativeRequest({
+          url: url, method: 'POST', headers: headers, body: bodyPlain,
+          stream: false, timeout: 120,
+          onChunk: function(t){ callAPI._buf = (callAPI._buf || '') + t; },
+          onDone: function(status){
+            var b = callAPI._buf || ''; callAPI._buf = '';
+            if (status >= 400) reject(new Error('HTTP ' + status + ' ' + shorten(b, 200)));
+            else resolve(b);
+          },
+          onError: function(e){ reject(new Error(e)); }
+        });
+      });
+    } else {
+      p = fetch(url, { method:'POST', headers: headers, body: bodyPlain }).then(function(res){
+        return res.text().then(function(t){
+          if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + shorten(t, 200));
+          return t;
+        });
+      });
+    }
+    p.then(function(t){
+      try{
+        var content = extractNonStream(t);
+        if (!content) throw new Error('接口返回了空内容');
+        handlers.onDelta(content);
+        if (!finished){ finished = true; handlers.onDone(); }
+      }catch(e){ fail(e.message || String(e)); }
+    })['catch'](function(e){ fail(e.message || String(e)); });
+  }
+
+  return callAPI._ac;
+}
+
+/* ------------------------- 发送消息 ------------------------- */
+function sendMsg(){
+  try{
+    if (UI.generating){ toast('还在回复中，请稍候'); return; }
+    var conv = getConv(UI.convId);
+    var c = getChar(UI.charId);
+    if (!conv){ toast('请先选择角色'); return; }
+    var ta = $('msgInput');
+    var text = trim(ta.value);
+    if (!text){ toast('说点什么吧'); return; }
+    if (!trim(DB.settings.apiKey)){ toast('请先在设置里填写 API Key'); go('settings'); return; }
+
+    ta.value = '';
+    autoGrow(ta);
+
+    conv.msgs.push({ role: 'user', content: text, ts: Date.now() });
+    conv.updatedAt = Date.now();
+    saveDB();
+    renderChat(true);
+    genReply(conv, c);
+  }catch(e){ toast('发送失败：' + e.message); }
+}
+
+function genReply(conv, c){
+  conv.msgs.push({ role: 'assistant', content: '', ts: Date.now(), streaming: true });
+  var aiMsg = conv.msgs[conv.msgs.length - 1];
+  renderChat(true);
+
+  UI.generating = true;
+  UI.genSeq++;
+  var seq = UI.genSeq;
+  setBusy(true);
+
+  var pending = false;
+  function flush(){
+    if (pending) return;
+    pending = true;
+    setTimeout(function(){
+      pending = false;
+      if (seq !== UI.genSeq) return;
+      updateLastBubble();
+    }, 60);
+  }
+
+  callAPI(conv, c, {
+    onDelta: function(d){
+      if (seq !== UI.genSeq) return;   // 已被停止
+      aiMsg.content += d;
+      flush();
+    },
+    onDone: function(){
+      if (seq !== UI.genSeq) return;
+      delete aiMsg.streaming;
+      aiMsg.ts = Date.now();
+      conv.updatedAt = Date.now();
+      if (!trim(aiMsg.content)){
+        aiMsg.content = '（接口没有返回内容，请检查模型名和 API 地址）';
+        aiMsg.error = true;
+      }
+      saveDB();
+      UI.generating = false;
+      setBusy(false);
+      renderChat(true);
+    },
+    onError: function(msg){
+      if (seq !== UI.genSeq) return;
+      delete aiMsg.streaming;
+      if (!trim(aiMsg.content)){
+        aiMsg.content = '⚠️ ' + msg;
+        aiMsg.error = true;
+      }
+      conv.updatedAt = Date.now();
+      saveDB();
+      UI.generating = false;
+      setBusy(false);
+      renderChat(true);
+      toast(msg);
+    }
+  });
+}
+
+function stopGen(){
+  try{
+    if (!UI.generating) return;
+    UI.genSeq++;              // 让所有回调失效
+    UI.generating = false;
+    // 浏览器路径：中止 fetch；App 内：中止原生请求（否则请求还在后台跑完）
+    if (callAPI._ac){ try{ callAPI._ac.abort(); }catch(e){} callAPI._ac = null; }
+    if (callAPI._nativeId){ nativeAbort(callAPI._nativeId); callAPI._nativeId = null; }
+    var conv = getConv(UI.convId);
+    if (conv && conv.msgs.length){
+      var last = conv.msgs[conv.msgs.length - 1];
+      delete last.streaming;
+      if (!trim(last.content)) last.content = '（已停止）';
+    }
+    setBusy(false);
+    saveDB();
+    renderChat(true);
+    toast('已停止生成');
+  }catch(e){ toast('停止失败'); }
+}
+
+function setBusy(b){
+  try{
+    $('btnSend').style.display = b ? 'none' : 'block';
+    $('btnStop').style.display = b ? 'block' : 'none';
+  }catch(e){}
+}
+
+function autoGrow(ta){
+  try{
+    ta.style.height = 'auto';
+    var h = ta.scrollHeight;
+    if (h > 110) h = 110;
+    if (h < 38) h = 38;
+    ta.style.height = h + 'px';
+  }catch(e){}
+}
+
+/* ------------------------- 设置 ------------------------- */
+function fillSettings(){
+  try{
+    var s = DB.settings;
+    $('setBase').value = s.apiBase || '';
+    $('setKey').value = s.apiKey || '';
+    $('setModel').value = s.model || '';
+    $('setTemp').value = s.temperature;
+    $('tempVal').textContent = Number(s.temperature).toFixed(1);
+  }catch(e){ toast('读取设置失败'); }
+}
+
+function onTempChange(){
+  try{
+    $('tempVal').textContent = Number($('setTemp').value).toFixed(1);
+  }catch(e){}
+}
+
+function saveSettings(){
+  try{
+    var base = trim($('setBase').value);
+    if (base && base.indexOf('http') !== 0){ toast('API 地址要以 http:// 或 https:// 开头'); return; }
+    DB.settings.apiBase = base || 'https://api.deepseek.com/v1';
+    DB.settings.apiKey = trim($('setKey').value);
+    DB.settings.model = trim($('setModel').value) || 'deepseek-chat';
+    var t = Number($('setTemp').value);
+    DB.settings.temperature = isNaN(t) ? 1.0 : t;
+    if (saveDB()){ toast('设置已保存'); go('home'); }
+  }catch(e){ toast('保存设置失败'); }
+}
+
+function testApi(){
+  try{
+    var key = trim($('setKey').value);
+    if (!key){ toast('请先填写 API Key'); return; }
+    // 先落盘，保证用的是当前输入
+    DB.settings.apiBase = trim($('setBase').value) || 'https://api.deepseek.com/v1';
+    DB.settings.apiKey = key;
+    DB.settings.model = trim($('setModel').value) || 'deepseek-chat';
+    saveDB();
+
+    var url = normBase(DB.settings.apiBase) + '/chat/completions';
+    var body = JSON.stringify({
+      model: DB.settings.model,
+      messages: [{ role: 'user', content: '你好' }],
+      stream: false,
+      max_tokens: 8
+    });
+    var headers = { 'Content-Type':'application/json', 'Authorization':'Bearer ' + key };
+    toast('测试中…');
+
+    function ok(t){
+      try{
+        var c = extractNonStream(t);
+        toast('✅ 连接成功，模型回复：' + shorten(c, 20));
+      }catch(e){ toast('❌ 响应异常：' + e.message); }
+    }
+    function bad(m){ toast('❌ ' + shorten(m, 60)); }
+
+    if (hasNative()){
+      var buf = '';
+      nativeRequest({
+        url: url, method: 'POST', headers: headers, body: body, stream: false, timeout: 30,
+        onChunk: function(t){ buf += t; },
+        onDone: function(status){
+          if (status >= 400) bad('HTTP ' + status + ' ' + buf);
+          else ok(buf);
+        },
+        onError: function(e){ bad(e); }
+      });
+    } else {
+      fetch(url, { method:'POST', headers: headers, body: body }).then(function(r){
+        return r.text().then(function(t){
+          if (!r.ok) bad('HTTP ' + r.status + ' ' + t);
+          else ok(t);
+        });
+      })['catch'](function(e){ bad(e.message); });
+    }
+  }catch(e){ toast('测试失败：' + e.message); }
+}
+
+/* ------------------------- 导出 / 清空 ------------------------- */
+function exportConv(){
+  try{
+    var conv = getConv(UI.convId);
+    if (!conv){ toast('没有可导出的对话'); return; }
+    var c = getChar(conv.charId);
+    var data = {
+      type: 'aichat_conversation',
+      exportedAt: new Date().toString(),
+      character: c ? { name: c.name, avatar: c.avatar, description: c.desc } : null,
+      title: conv.title,
+      messages: conv.msgs.map(function(m){
+        return { role: m.role, content: m.content, time: m.ts ? new Date(m.ts).toString() : '' };
+      })
+    };
+    showExport(JSON.stringify(data, null, 2), 'conversation');
+  }catch(e){ toast('导出失败：' + e.message); }
+}
+
+function exportAll(){
+  try{
+    showExport(JSON.stringify(DB, null, 2), 'all');
+  }catch(e){ toast('导出失败：' + e.message); }
+}
+
+function showExport(text, kind){
+  try{
+    $('exportText').value = text;
+    $('maskExport').setAttribute('data-kind', kind || 'all');
+    openMask('maskExport');
+  }catch(e){ toast('打开导出失败'); }
+}
+
+function doCopyExport(){
+  try{
+    var t = $('exportText').value;
+    if (copyText(t)) toast('已复制到剪贴板');
+    else toast('复制失败，请长按文本框手动全选复制');
+  }catch(e){ toast('复制失败'); }
+}
+
+function doDownloadExport(){
+  try{
+    var t = $('exportText').value;
+    var kind = $('maskExport').getAttribute('data-kind') || 'data';
+    var name = 'aichat_' + kind + '_' + Date.now() + '.json';
+    var blob = new Blob([t], { type: 'application/json;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+    toast('已触发下载（若没反应请用「复制」）');
+  }catch(e){ toast('下载失败，请用「复制」'); }
+}
+
+function wipeAll(){
+  showConfirm('将清空所有角色、对话和设置，且无法恢复。确定继续？', '清空数据', 'doWipeAll', null, '清空');
+}
+
+function doWipeAll(){
+  try{
+    DB = defaultDB();
+    saveDB();
+    UI.charId = null; UI.convId = null;
+    renderCharList();
+    fillSettings();
+    go('home');
+    toast('已清空全部数据');
+  }catch(e){ toast('清空失败'); }
+}
+
+/* =========================================================================
+   启动
+   ========================================================================= */
+function boot(){
+  try{
+    loadDB();
+    renderCharList();
+    fillSettings();
+    setBusy(false);
+
+    // 输入框自适应高度
+    var ta = $('msgInput');
+    ta.addEventListener('input', function(){ autoGrow(ta); }, false);
+
+    // 全局错误兜底
+    window.onerror = function(msg){
+      try{ toast('出错了：' + shorten(String(msg), 40)); }catch(e){}
+      return false;
+    };
+
+    // 恢复上次的温度显示
+    onTempChange();
+
+    // 首屏提示
+    setTimeout(function(){
+      if (!trim(DB.settings.apiKey)) toast('提示：先在「设置」里填 API Key');
+    }, 600);
+  }catch(e){
+    document.body.innerHTML = '<div class="empty">启动失败：' + esc(e.message) + '</div>';
+  }
+}
+
+/* ------------------------- 挂载到 window（WKWebView 必须） ------------------------- */
+window.go = go;
+window.toast = toast;
+window.closeMask = closeMask;
+window.openMask = openMask;
+window.showConfirm = showConfirm;
+window.doConfirmOK = doConfirmOK;
+window.doConfirmCancel = doConfirmCancel;
+
+window.renderCharList = renderCharList;
+window.newChar = newChar;
+window.editChar = editChar;
+window.saveChar = saveChar;
+window.pickEmoji = pickEmoji;
+window.askDeleteChar = askDeleteChar;
+window.doDeleteChar = doDeleteChar;
+window.resetDemo = resetDemo;
+window.doResetDemo = doResetDemo;
+window.startChat = startChat;
+
+window.openImport = openImport;
+window.doImport = doImport;
+window.importJSONText = importJSONText;
+
+window.newConv = newConv;
+window.switchConv = switchConv;
+window.openConvList = openConvList;
+window.askDeleteConv = askDeleteConv;
+window.doDeleteConv = doDeleteConv;
+window.sendMsg = sendMsg;
+window.stopGen = stopGen;
+
+window.fillSettings = fillSettings;
+window.saveSettings = saveSettings;
+window.onTempChange = onTempChange;
+window.testApi = testApi;
+
+window.exportConv = exportConv;
+window.exportAll = exportAll;
+window.doCopyExport = doCopyExport;
+window.doDownloadExport = doDownloadExport;
+window.wipeAll = wipeAll;
+window.doWipeAll = doWipeAll;
+
+window.apiGetText = apiGetText;
+
+boot();
+</script>
+</body>
+</html>

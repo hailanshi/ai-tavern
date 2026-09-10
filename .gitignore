@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# 云端编译产物
+ios-shell/AIChat/build/
+ios-shell/AIChat/build.log
+ios-shell/AIChat/_payload/
+*.ipa
+*.xcuserdatad
+*.xcodeproj
+xcuserdata/
+
+# 本地杂项
+node_modules/
+__pycache__/
+*.pyc

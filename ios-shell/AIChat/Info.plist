@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+	<!-- ============ 基础标识 ============ -->
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+
+	<key>CFBundleDisplayName</key>
+	<string>AI酒馆</string>
+
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+
+	<!-- 必须与 PRODUCT_NAME / 实际主程序文件名一致，否则装上闪退 -->
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+
+	<!-- ============ 系统要求 ============ -->
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+
+	<key>MinimumOSVersion</key>
+	<string>12.0</string>
+
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+	</array>
+
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+
+	<!-- ============ 状态栏 / 启动屏 ============ -->
+	<key>UIStatusBarStyle</key>
+	<string>UIStatusBarStyleLightContent</string>
+
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+
+	<!-- 空 dict 即可让 App 以原生分辨率全屏运行（iOS 14+） -->
+	<key>UILaunchScreen</key>
+	<dict/>
+
+	<!-- ============ 网络 ============ -->
+	<!-- 用户要连自己的 OpenAI 兼容接口，域名不固定，只能全放开。
+	     加密仍然走 TLS，只是不做 ATS 的证书/协议强校验。 -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+
+	<!-- ============ 崩溃日志可见性 ============ -->
+	<!-- 打开后「文件」App -> 我的 iPhone -> AI酒馆 里能看到 crash.log -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+
+	<!-- ============ 图标 ============ -->
+	<!-- 文件名是 AppIcon60x60@2x.png / @3x.png，这里只写基名 -->
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+			</array>
+			<key>UIPrerenderedIcon</key>
+			<false/>
+		</dict>
+	</dict>
+
+</dict>
+</plist>
