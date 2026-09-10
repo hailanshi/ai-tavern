@@ -160,6 +160,22 @@ Actions 工作流、图标规格、资源同步。
 
 **推之前务必跑一遍**，能省掉好几轮云端编译。
 
+### 验证下载到的 ipa
+
+从 Actions 下载 ipa 后，装之前可以先验一遍——它会真的解析 Mach-O，
+而不是只看文件在不在：
+
+```bash
+python ios-shell/verify-ipa.py AIChat.ipa
+```
+
+检查项：包结构是否 `Payload/*.app/`、主程序是不是 **arm64 + MH_EXECUTE**
+（不是空壳）、`cryptid` 是否为 **0**（TrollStore 要求未加密）、
+`Info.plist` 关键键、`index.html` 与图标是否齐全、ad-hoc 签名是否存在。
+
+全部通过会打印 `结果: 全部通过`，任一不合格退出码为 1。
+自己改坏了包的话，这个脚本能提前发现，不用装到手机上才发现闪退。
+
 ---
 
 ## 五、踩过的坑（都已在代码里规避）
