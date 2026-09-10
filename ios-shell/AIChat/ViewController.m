@@ -56,6 +56,8 @@
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSMutableData *> *buffers;
 // reqId -> NSURLSessionDataTask
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSURLSessionDataTask *> *tasks;
+// 标记哪些请求要原始字节（图片下载）：这些请求跳过 UTF-8 解码，整体 base64 回传
+@property (nonatomic, strong) NSMutableSet<NSString *> *binaryReqs;
 
 // <input type="file"> 打开文件选择时的回调，必须恰好调用一次
 @property (nonatomic, copy) void (^openPanelCompletion)(NSArray<NSURL *> *urls);
@@ -73,6 +75,7 @@
     self.view.backgroundColor = [UIColor colorWithRed:0.055 green:0.063 blue:0.075 alpha:1.0];
     self.buffers = [NSMutableDictionary dictionary];
     self.tasks = [NSMutableDictionary dictionary];
+    self.binaryReqs = [NSMutableSet set];
 
     [self setupSession];
     [self setupWebView];
@@ -329,6 +332,7 @@
     }
 
     self.buffers[reqId] = [NSMutableData data];
+    if ([body[@"binary"] boolValue]) [self.binaryReqs addObject:reqId];
 
     NSURLSessionDataTask *task = [self.session dataTaskWithRequest:req];
     task.taskDescription = reqId;        // 用它把回调关联回 reqId
@@ -341,6 +345,7 @@
     if (task) [task cancel];
     [self.tasks removeObjectForKey:reqId];
     [self.buffers removeObjectForKey:reqId];
+    [self.binaryReqs removeObject:reqId];
 }
 
 #pragma mark - NSURLSessionDataDelegate：原生 -> JS
@@ -359,6 +364,10 @@
     }
     [buf appendData:data];
 
+    // 二进制（图片）：原样攒着，绝不能走 drainUTF8 ——
+    // 二进制不是 UTF-8，逐字节回退解码会把数据毁掉
+    if ([self.binaryReqs containsObject:reqId]) return;
+
     NSString *text = [self drainUTF8:buf];
     if (text.length > 0) [self sendChunk:reqId text:text];
 }
@@ -370,17 +379,54 @@ didCompleteWithError:(NSError *)error {
     NSString *reqId = task.taskDescription;
     if (reqId.length == 0) return;
 
-    // 冲刷缓冲里剩下的完整字节
+    NSInteger status = 0;
+    if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+        status = ((NSHTTPURLResponse *)task.response).statusCode;
+    }
+
+    // ---- 二进制路径：整体 base64 一次回传，包成 JSON 让 JS 知道 MIME ----
+    if ([self.binaryReqs containsObject:reqId]) {
+        NSMutableData *bin = self.buffers[reqId];
+        [self.buffers removeObjectForKey:reqId];
+        [self.binaryReqs removeObject:reqId];
+        [self.tasks removeObjectForKey:reqId];
+
+        if (error) {
+            if (error.code != NSURLErrorCancelled) {
+                NSString *m = error.localizedDescription ?: @"图片下载失败";
+                if (status > 0) m = [NSString stringWithFormat:@"HTTP %ld：%@", (long)status, m];
+                [self sendDone:reqId status:status error:m];
+            } else {
+                [self sendDone:reqId status:status error:nil];
+            }
+            return;
+        }
+
+        if (bin.length > 0) {
+            NSString *mime = @"image/png";
+            if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
+                id ct = ((NSHTTPURLResponse *)task.response).allHeaderFields[@"Content-Type"];
+                if ([ct isKindOfClass:[NSString class]] && [ct length] > 0) {
+                    NSRange semi = [ct rangeOfString:@";"];
+                    mime = (semi.location == NSNotFound) ? ct : [ct substringToIndex:semi.location];
+                }
+            }
+            NSDictionary *env = @{ @"mime": mime,
+                                   @"b64": [bin base64EncodedStringWithOptions:0] };
+            NSData *jd = [NSJSONSerialization dataWithJSONObject:env options:0 error:NULL];
+            NSString *json = jd ? [[NSString alloc] initWithData:jd encoding:NSUTF8StringEncoding] : nil;
+            if (json) [self sendChunk:reqId text:json];
+        }
+        [self sendDone:reqId status:status error:nil];
+        return;
+    }
+
+    // ---- 文本路径：冲刷缓冲里剩下的完整字节 ----
     NSMutableData *buf = self.buffers[reqId];
     if (buf.length > 0) {
         NSString *rest = [[NSString alloc] initWithData:buf encoding:NSUTF8StringEncoding];
         if (rest.length > 0) [self sendChunk:reqId text:rest];
         [self.buffers removeObjectForKey:reqId];
-    }
-
-    NSInteger status = 0;
-    if ([task.response isKindOfClass:[NSHTTPURLResponse class]]) {
-        status = ((NSHTTPURLResponse *)task.response).statusCode;
     }
 
     [self.tasks removeObjectForKey:reqId];

@@ -141,6 +141,31 @@ need(/first_mes/, '兼容 SillyTavern first_mes');
 need(/不要暴露自己是AI/, '固定人设指令');
 need(/apiGetText/, 'apiGetText 封装');
 
+// --- 图片功能 ---
+need(/\[\[IMG:/, '[[IMG: ...]] 标记解析');
+need(/renderBubbleBody/, 'renderBubbleBody 气泡渲染');
+need(/imgReady/, 'imgReady 配置检查');
+need(/generateImage/, 'generateImage 生图调用');
+need(/images\/generations/, '调用 /images/generations');
+need(/compressToDataURL/, 'canvas 压缩图片');
+need(/nativeFetchBinary/, '原生二进制下载通道');
+need(/evictImages/, '配图配额回收');
+need(/IMG_BUDGET/, '图片存储预算');
+need(/retryImage/, '配图失败重试');
+need(/你只能发送纯文字消息/, '图片关闭时的「不许承诺发图」提示');
+need(/你可以给用户发图片/, '图片开启时的发图指令');
+
+// 图片不能出现在导出数据里（几 MB 文本会让 textarea 卡死）
+if (/images:\s*\(m\.images \|\| \[\]\)\.map\(function\(im\)\{\s*return im;\s*\}\)/.test(js)) {
+  bad('导出时包含了图片 base64 数据');
+} else {
+  ok('导出只含配图描述，不含 base64 数据');
+}
+
+// 渲染路径必须用 innerHTML，textContent 会把图片抹掉
+if (/bub\.textContent\s*=/.test(stripped)) bad('updateLastBubble 仍用 textContent（会抹掉图片）');
+else ok('气泡渲染走 innerHTML，图片不会被抹掉');
+
 var constDef = js.match(/var\s+STORE_KEY\s*=\s*'([^']+)'/);
 if (constDef) ok('存储键统一常量 ' + constDef[1] + '（' + (js.match(/STORE_KEY/g) || []).length + ' 处引用）');
 else wrn('未找到 STORE_KEY 常量');
@@ -184,10 +209,19 @@ var vc = read(path.join(shellDir, 'ViewController.m'));
   [/didReceiveData:/, 'NSURLSession 流式接收'],
   [/drainUTF8/, 'UTF-8 边界安全解码'],
   [/evaluateJavaScript/, '回传 JS'],
-  [/runOpenPanelWithParameters/, '支持 input[type=file]']
+  [/runOpenPanelWithParameters/, '支持 input[type=file]'],
+  [/binaryReqs/, '二进制请求标记集合'],
+  [/base64EncodedStringWithOptions/, '图片字节 base64 回传']
 ].forEach(function (p) {
   if (p[0].test(vc)) ok(p[1]); else bad('壳缺少：' + p[1]);
 });
+
+// 二进制数据绝不能走 UTF-8 逐字节解码，否则图片会烂掉
+if (/binaryReqs containsObject:reqId\]\) return;/.test(vc)) {
+  ok('二进制路径在 drainUTF8 之前就分流了');
+} else {
+  bad('二进制数据可能被 drainUTF8 破坏 —— 图片会解码失败');
+}
 
 // 明确禁止的私有 KVC（必须先剥掉注释，否则注释里提到这些名字也会误报）
 var vcCode = vc.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
@@ -321,6 +355,30 @@ if (exists(resHtml)) {
   if (read(resHtml) === read(htmlPath)) ok('Resources/index.html 与 app.html 完全一致');
   else bad('Resources/index.html 与 app.html 不一致 —— 重新 cp 一次');
 } else bad('Resources/index.html 不存在');
+
+/* ---------------------------------------------------------------- [11] */
+head('[11] 气泡渲染回归测试');
+var testFile = P('ios-shell', 'test-render.js');
+if (!exists(testFile)) {
+  wrn('test-render.js 不存在，跳过');
+} else {
+  try {
+    var out = require('child_process').execFileSync(
+      process.execPath, [testFile], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    var passed = out.match(/(\d+) 项通过/);
+    var line = out.split('\n').filter(function (l) { return l.indexOf('结果:') >= 0; })[0] || '';
+    if (/\d+ 项失败/.test(line) && !/ 0 项失败/.test(line)) {
+      bad('渲染测试有失败项：' + line.trim());
+      console.log(out);
+    } else {
+      ok('渲染测试全部通过（' + (passed ? passed[1] : '?') + ' 项）');
+    }
+  } catch (e) {
+    bad('渲染测试失败');
+    var o = (e.stdout || '') + (e.stderr || '');
+    if (o) console.log(o);
+  }
+}
 
 /* ---------------------------------------------------------------- 汇总 */
 console.log('\n' + '='.repeat(52));
