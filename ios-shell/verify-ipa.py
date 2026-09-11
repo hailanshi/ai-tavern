@@ -24,6 +24,7 @@ MH_EXECUTE = 0x2
 CPU_TYPE_ARM64 = 0x0100000C
 LC_ENCRYPTION_INFO = 0x21
 LC_ENCRYPTION_INFO_64 = 0x2C
+LC_LOAD_DYLIB = 0xC
 
 fails = []
 warns = []
@@ -65,6 +66,7 @@ def parse_macho(data):
         "type": ftype,
         "ncmds": ncmds,
         "cryptid": None,
+        "dylibs": [],
     }
 
     off = 32
@@ -82,6 +84,15 @@ def parse_macho(data):
                     "<IIIII", data[off:off + 20]
                 )
                 info["cryptid"] = cryptid
+
+        elif cmd == LC_LOAD_DYLIB:
+            # struct: cmd, cmdsize, name_offset, timestamp, cur_ver, compat_ver
+            if off + 12 <= len(data):
+                name_off = struct.unpack("<I", data[off + 8:off + 12])[0]
+                start = off + name_off
+                end = data.find(b"\x00", start, off + cmdsize)
+                if 0 <= start < end:
+                    info["dylibs"].append(data[start:end].decode("utf-8", "replace"))
 
         off += cmdsize
 
@@ -193,6 +204,19 @@ def main():
             wrn("没找到 LC_ENCRYPTION_INFO，可能未加密（真机才最终确定）")
         else:
             bad("cryptid = %d，包被加密了，TrollStore 装不了" % cid)
+
+        # 链接了哪些系统框架。少链一个，对应功能一调用就崩。
+        dylibs = info.get("dylibs", [])
+        if dylibs:
+            print("       链接的框架: " + ", ".join(
+                sorted(set(d.split("/")[-1] for d in dylibs))))
+        for fw in ("WebKit", "AVFoundation", "UIKit", "Foundation"):
+            if any(("/" + fw + ".framework/") in d for d in dylibs):
+                ok("已链接 " + fw)
+            elif fw == "AVFoundation":
+                bad("没链接 AVFoundation —— 语音播放会崩")
+            else:
+                wrn("没链接 " + fw)
 
     # --- 3. Info.plist 关键键 ---
     print("\n[3] Info.plist")
